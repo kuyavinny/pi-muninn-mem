@@ -200,9 +200,37 @@ function registerVaultInjection(pi) {
 }
 
 // index.ts
+import { execFile } from "node:child_process";
+import { join as join2 } from "node:path";
 function index_default(pi) {
   registerLifecycleHooks(pi);
   registerVaultInjection(pi);
+  pi.registerCommand("muninn-setup", {
+    description: "Interactive setup for MuninnDB memory integration",
+    handler: async (_args, ctx) => {
+      const scriptPath = join2(__dirname, "muninn-setup.sh");
+      try {
+        ctx.ui.notify("Running MuninnDB setup...", "info");
+        await new Promise((resolve, reject) => {
+          execFile(
+            "bash",
+            [scriptPath],
+            { timeout: 12e4 },
+            (err, stdout, stderr) => {
+              if (stdout) ctx.ui.notify(stdout, "info");
+              if (stderr) ctx.ui.notify(stderr, "warning");
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+        ctx.ui.notify("MuninnDB setup complete. Restart Pi to apply changes.", "info");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(`Setup failed: ${msg}`, "error");
+      }
+    }
+  });
 }
 export {
   index_default as default
