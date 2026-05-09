@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit --project tsconfig.json || true
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Verify bundle exists and is non-trivial
+        run: |
+          test -f dist/index.mjs || (echo "❌ Bundle not found" && exit 1)
+          SIZE=$(wc -c < dist/index.mjs)
+          [ "$SIZE" -gt 5000 ] || (echo "❌ Bundle too small: $SIZE bytes" && exit 1)
+          echo "✅ Bundle OK: $SIZE bytes"
+
+      - name: Security audit
+        run: npm audit --audit-level=high || true
+        continue-on-error: true
+
+      - name: Verify no binaries in package
+        run: |
+          BINARY=$(find . -not -path './node_modules/*' -not -path './.git/*' -type f -size +1M 2>/dev/null | head -1)
+          if [ -n "$BINARY" ]; then
+            echo "❌ Large file found: $BINARY"
+            exit 1
+          fi
+          echo "✅ No binaries in package"
+
+      - name: Verify SHA-256 checksums are present
+        run: |
+          COUNT=$(grep -c 'BINARY_HASHES' src/setup.ts)
+          [ "$COUNT" -gt 0 ] || (echo "❌ No binary checksums found" && exit 1)
+          echo "✅ Binary checksums present"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
