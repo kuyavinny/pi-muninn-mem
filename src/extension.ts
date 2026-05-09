@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { client } from "./shared-client";
 import { resolveVaultName, ActivationPush } from "./vault";
 import { startSSESubscription } from "./subscribe";

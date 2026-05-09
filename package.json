@@ -1,23 +1,49 @@
 {
-    "name": "muninn-memory",
-    "version": "0.1.0",
-    "description": "MuninnDB memory provider extension for Pi coding agent",
-    "private": true,
-    "type": "module",
-    "keywords": ["pi-package"],
-    "pi": {
-        "extensions": [
-            "./index.ts"
-        ]
-    },
-    "dependencies": {
-        "typebox": "^1.1.0"
-    },
-    "peerDependencies": {
-        "@mariozechner/pi-coding-agent": "*"
-    },
-    "devDependencies": {
-        "@types/node": "^25.6.0",
-        "typescript": "^6.0.3"
-    }
+  "name": "@kuyavinny/pi-muninn-mem",
+  "version": "1.0.0",
+  "description": "MuninnDB memory provider for Pi — SSE subscription, context injection, vault bridge",
+  "keywords": [
+    "pi-package",
+    "muninndb",
+    "memory",
+    "mcp",
+    "sse",
+    "persistent-memory"
+  ],
+  "type": "module",
+  "main": "dist/index.mjs",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "build": "esbuild index.ts --bundle --format=esm --platform=node --outfile=dist/index.mjs --external:@earendil-works/pi-coding-agent",
+    "prepublishOnly": "npm run build",
+    "check": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck --strict index.ts"
+  },
+  "dependencies": {
+    "typebox": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  },
+  "files": [
+    "index.ts",
+    "dist/",
+    "src/",
+    "muninn-setup.sh",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuyavinny/pi-muninn-mem.git"
+  },
+  "license": "MIT"
 }
