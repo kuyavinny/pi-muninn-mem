@@ -4,6 +4,20 @@ import { resolveVaultName, ActivationPush } from "./vault";
 import { startSSESubscription } from "./subscribe";
 
 /**
+ * Check if MuninnDB REST API is reachable.
+ * Returns true if healthy, false if down.
+ */
+async function checkMuninnHealth(muninnClient: any): Promise<boolean> {
+  try {
+    const url = (muninnClient as any).config?.restUrl ?? "http://127.0.0.1:8475";
+    const res = await fetch(`${url}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Registers Pi lifecycle hooks for MuninnDB memory integration.
  *
  * This extension takes a minimal, MCP-first approach:
@@ -18,11 +32,24 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
   let pendingPushes: ActivationPush[] = [];
   let sseAbort: AbortController | null = null;
   let isFirstTurn = true;
+  let muninnUp = false; // Set by session_start health check
 
   // ─── session_start: Start SSE subscription + notify user ───
   pi.on("session_start", async (_event, ctx) => {
     currentVault = resolveVaultName(process.cwd());
     isFirstTurn = true;
+
+    // Check if MuninnDB is reachable
+    const healthResult = await checkMuninnHealth(client);
+    muninnUp = healthResult;
+
+    if (!muninnUp) {
+      ctx.ui.notify(
+        "MuninnDB is not running. Run /muninn-setup to install and configure it.",
+        "warning",
+      );
+      return; // Don't start SSE if MuninnDB is down
+    }
 
     ctx.ui.notify(`MuninnDB: vault "${currentVault}"`, "info");
 
@@ -51,7 +78,7 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
   // context from the previous session. On subsequent turns, the LLM
   // relies on AGENTS.md prompting to call muninn_recall when needed.
   pi.on("before_agent_start", async () => {
-    if (!isFirstTurn) return;
+    if (!muninnUp || !isFirstTurn) return;
     isFirstTurn = false;
 
     return {

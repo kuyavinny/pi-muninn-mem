@@ -142,14 +142,33 @@ async function startSSESubscription(client2, vault, signal, onPush) {
 }
 
 // src/extension.ts
+async function checkMuninnHealth(muninnClient) {
+  try {
+    const url = muninnClient.config?.restUrl ?? "http://127.0.0.1:8475";
+    const res = await fetch(`${url}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 function registerLifecycleHooks(pi) {
   let currentVault = resolveVaultName(process.cwd());
   let pendingPushes = [];
   let sseAbort = null;
   let isFirstTurn = true;
+  let muninnUp = false;
   pi.on("session_start", async (_event, ctx) => {
     currentVault = resolveVaultName(process.cwd());
     isFirstTurn = true;
+    const healthResult = await checkMuninnHealth(client);
+    muninnUp = healthResult;
+    if (!muninnUp) {
+      ctx.ui.notify(
+        "MuninnDB is not running. Run /muninn-setup to install and configure it.",
+        "warning"
+      );
+      return;
+    }
     ctx.ui.notify(`MuninnDB: vault "${currentVault}"`, "info");
     sseAbort = new AbortController();
     startSSESubscription(client, currentVault, sseAbort.signal, (push) => {
@@ -163,7 +182,7 @@ function registerLifecycleHooks(pi) {
     isFirstTurn = true;
   });
   pi.on("before_agent_start", async () => {
-    if (!isFirstTurn) return;
+    if (!muninnUp || !isFirstTurn) return;
     isFirstTurn = false;
     return {
       message: {
