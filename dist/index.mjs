@@ -1,3 +1,10 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // src/client.ts
 var MuninnClient = class {
   config;
@@ -199,36 +206,329 @@ function registerVaultInjection(pi) {
   });
 }
 
-// index.ts
-import { execFile } from "node:child_process";
+// src/setup.ts
+import { readFileSync as readFileSync2, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join as join2 } from "node:path";
+import { homedir as homedir2 } from "node:os";
+import { execFileSync } from "node:child_process";
+var HOME = homedir2();
+var MCP_CONFIG_PATH2 = join2(HOME, ".config/mcp/mcp.json");
+var AGENTS_MD_PATH = join2(HOME, ".pi/agent/AGENTS.md");
+var MUNINN_ENV_PATH = join2(HOME, ".muninn/muninn.env");
+var MUNINN_DATA_DIR = join2(HOME, ".muninn/data");
+var SETTINGS_PATH = join2(HOME, ".pi/agent/settings.json");
+var AGENTS_MD_SECTION = `# Memory: MuninnDB
+
+You have persistent memory via MuninnDB. Use it actively \u2014 never rely on local or session-only memory.
+
+## Session Start \u2014 Always
+
+Before beginning any work, call \`muninndb_muninn_where_left_off\` (via mcp) to load context from the previous session.
+This is unconditional \u2014 not "if relevant" but "always, before beginning any work."
+
+## During Every Session
+
+- **Save continuously** \u2014 this is a mindset, not a checklist.
+- Anything the user shares or that emerges from the work should be saved immediately.
+- Do not evaluate whether it is "important enough" \u2014 when in doubt, save it.
+- Do not wait to be asked. If you discover something useful, write it to memory.
+
+### What to Save
+
+- **Decisions**: "We chose X because Y" \u2192 \`muninndb_muninn_decide\`
+- **Preferences**: "I prefer tabs over spaces" \u2192 \`muninndb_muninn_remember\` type=preference
+- **Issues**: "Service X fails on port 8080" \u2192 \`muninndb_muninn_remember\` type=issue
+- **Procedures**: "To deploy, run these steps..." \u2192 \`muninndb_muninn_remember\` type=procedure
+- **Facts**: "The API returns 429 on rate limits" \u2192 \`muninndb_muninn_remember\` type=fact
+- **Batch saves**: Use \`muninndb_muninn_remember_batch\` when storing multiple memories at once
+
+### What NOT to Save
+
+- Greetings, acknowledgments, "let me check", "I'll do that"
+- Raw tool output (bash, read, edit, write)
+- Meta-discussion about the conversation itself
+- Information you're not confident about
+
+## Tools Available
+
+All 39 MuninnDB tools are available via the \`mcp\` gateway with prefix \`muninndb_muninn_*\`.
+Call them using the \`mcp\` function, e.g.: \`mcp({ tool: "muninndb_muninn_where_left_off", args: "{\\"vault\\": \\"muninndb\\"}" })\`
+
+| Tool | Purpose |
+|------|---------|
+| \`muninndb_muninn_where_left_off\` | Restore context from last session \u2014 **call this first** |
+| \`muninndb_muninn_recall\` | Semantic search for relevant memories |
+| \`muninndb_muninn_remember\` | Store a fact, decision, preference, or observation |
+| \`muninndb_muninn_decide\` | Record a decision with rationale and evidence |
+| \`muninndb_muninn_remember_batch\` | Store multiple memories at once (max 50) |
+| \`muninndb_muninn_evolve\` | Update a memory with new information |
+| \`muninndb_muninn_consolidate\` | Merge related memories |
+| \`muninndb_muninn_contradictions\` | Check for known contradictions |
+| \`muninndb_muninn_guide\` | Get vault-specific usage instructions |
+
+## Vault Strategy
+
+Each project gets its own vault (derived from the directory basename). The vault is injected automatically \u2014 you don't need to specify it.
+
+## Contradiction Detection
+
+When you see a \`[\u26A0\uFE0F Contradiction detected]\` message, use \`muninndb_muninn_evolve\` to update the older memory or \`muninndb_muninn_consolidate\` to merge them.`;
+async function setupMuninnDB(ctx) {
+  const log = (msg) => ctx.ui.notify(msg, "info");
+  const warn = (msg) => ctx.ui.notify(msg, "warning");
+  const error = (msg) => ctx.ui.notify(msg, "error");
+  log("\u2554\u2550\u2550\u2550 MuninnDB Setup \u2550\u2550\u2550\u2557");
+  log("Step 1: Checking MuninnDB...");
+  let restPort = 8475;
+  let mcpPort = 8750;
+  let muninnRunning = false;
+  if (await checkHealth(8475)) {
+    muninnRunning = true;
+    log("  \u2713 MuninnDB running (CLI, ports 8475/8750)");
+  } else if (await checkHealth(8575)) {
+    muninnRunning = true;
+    restPort = 8575;
+    mcpPort = 8850;
+    log("  \u2713 MuninnDB running (container, ports 8575/8850)");
+  }
+  if (!muninnRunning) {
+    const muninnBin2 = findMuninnBinary();
+    if (muninnBin2) {
+      log("  MuninnDB found but not running. Starting...");
+      try {
+        execFileSync(muninnBin2, ["start"], { timeout: 1e4 });
+        for (let i = 0; i < 10; i++) {
+          if (await checkHealth(8475)) {
+            muninnRunning = true;
+            log("  \u2713 MuninnDB started (CLI, ports 8475/8750)");
+            break;
+          }
+          await sleep(1e3);
+        }
+      } catch {
+      }
+    }
+    if (!muninnRunning) {
+      error("MuninnDB is not running. Install and start it:");
+      log("");
+      log("  Binary install:");
+      log("    curl -sSL https://github.com/scrypster/muninndb/releases/latest/download/muninn-linux-amd64 -o ~/bin/muninn");
+      log("    chmod +x ~/bin/muninn");
+      log("    muninn init --tool manual --no-token --yes --yes");
+      log("    muninn start");
+      log("");
+      log("  Docker:");
+      log("    docker run -d --name muninndb \\");
+      log("      -p 8474:8474 -p 8475:8475 -p 8476:8476 -p 8477:8477 -p 8750:8750 \\");
+      log("      -v muninndb-data:/data ghcr.io/scrypster/muninndb:latest");
+      log("");
+      log("  Then re-run: /muninn-setup");
+      return;
+    }
+  }
+  log("Step 2: Embedding configuration...");
+  log("  Default: Bundled ONNX embedder (all-MiniLM-L6-v2, 384-dim)");
+  log("           Works without any external service. No API key needed.");
+  const ollamaRunning = await checkOllama();
+  if (ollamaRunning) {
+    log("  \u2713 Ollama detected \u2014 optional upgrades available:");
+    log("    Embedding:  ollama pull nomic-embed-text    (768-dim, better quality)");
+    log("    Embedding:  ollama pull qwen3-embedding:0.6b (fast, good quality)");
+    log("    Enrichment: ollama pull llama3.2:1b          (summaries, entities, contradictions)");
+    log("");
+    log("  To enable, edit ~/.muninn/muninn.env and restart MuninnDB:");
+    log("    MUNINN_OLLAMA_URL=ollama://localhost:11434/nomic-embed-text");
+    log("    MUNINN_ENRICH_URL=ollama://localhost:11434/llama3.2:1b");
+  } else {
+    log("  \u2139 Ollama not found. Bundled embedder will be used (works offline).");
+    log("  To upgrade embedding quality, install Ollama: https://ollama.com");
+  }
+  log("Step 3: Creating vault...");
+  const muninnBin = findMuninnBinary();
+  if (muninnBin) {
+    try {
+      execFileSync(muninnBin, ["vault", "create", "muninndb", "--public", "-u", "root", "-p"], { timeout: 5e3 });
+      log("  \u2713 Vault 'muninndb' created (public)");
+    } catch (e) {
+      if (e?.message?.includes("already exists")) {
+        log("  \u2713 Vault 'muninndb' already exists");
+      } else {
+        warn("  Could not create vault \u2014 it will be created on first write");
+      }
+    }
+  } else {
+    log("  \u2139 Vault will be created on first write (muninn binary not found)");
+  }
+  log("Step 4: Configuring MCP...");
+  const mcpUrl = `http://127.0.0.1:${mcpPort}/mcp`;
+  await writeMcpConfig(mcpUrl);
+  log(`  \u2713 MCP configured: ${mcpUrl}`);
+  log("Step 5: Configuring AGENTS.md...");
+  await writeAgentsMd();
+  log("  \u2713 AGENTS.md configured");
+  log("");
+  log("\u2554\u2550\u2550\u2550 Setup Summary \u2550\u2550\u2550\u2557");
+  if (await checkHealth(restPort)) {
+    log(`  \u2713 MuninnDB: REST :${restPort}, MCP :${mcpPort}`);
+  } else {
+    error(`  \u2717 MuninnDB: not responding on :${restPort}`);
+  }
+  log(`  \u2713 MCP config: ${MCP_CONFIG_PATH2}`);
+  log(`  \u2713 AGENTS.md: ${AGENTS_MD_PATH}`);
+  log(`  \u2713 Embedding: ${ollamaRunning ? "Ollama available (optional)" : "Bundled ONNX (default)"}`);
+  log("");
+  log("Next steps:");
+  log("  1. Restart Pi to load the extension");
+  log("  2. First turn: call muninndb_muninn_where_left_off (via mcp)");
+  log("");
+}
+async function uninstallMuninnDB(ctx) {
+  const log = (msg) => ctx.ui.notify(msg, "info");
+  log("\u2554\u2550\u2550\u2550 MuninnDB Uninstall \u2550\u2550\u2550\u2557");
+  try {
+    if (existsSync(SETTINGS_PATH)) {
+      const data = JSON.parse(readFileSync2(SETTINGS_PATH, "utf-8"));
+      const pkgs = data.packages || [];
+      const original = pkgs.length;
+      data.packages = pkgs.filter((p) => !p.includes("muninn-memory"));
+      if (data.packages.length < original) {
+        writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2) + "\n");
+        log("  \u2713 Removed from Pi settings");
+      }
+    }
+  } catch {
+  }
+  try {
+    if (existsSync(MCP_CONFIG_PATH2)) {
+      const data = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
+      if (data.mcpServers?.muninndb) {
+        delete data.mcpServers.muninndb;
+        writeFileSync(MCP_CONFIG_PATH2, JSON.stringify(data, null, 2) + "\n");
+        log("  \u2713 Removed muninndb from MCP config");
+      }
+    }
+  } catch {
+  }
+  try {
+    if (existsSync(AGENTS_MD_PATH)) {
+      const content = readFileSync2(AGENTS_MD_PATH, "utf-8");
+      const result = removeMuninnSection(content);
+      if (result.trim() !== content.trim()) {
+        writeFileSync(AGENTS_MD_PATH, result.trim() + "\n");
+        log("  \u2713 Removed MuninnDB section from AGENTS.md");
+      }
+      if (result.trim().length < 5) {
+        log("  \u2139 AGENTS.md may be empty \u2014 remove manually if desired");
+      }
+    }
+  } catch {
+  }
+  log("");
+  log("Restart Pi to apply changes.");
+  log("To remove MuninnDB data: rm -rf ~/.muninn");
+  log("To stop MuninnDB: muninn stop");
+}
+async function checkHealth(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+async function checkOllama() {
+  try {
+    const res = await fetch("http://localhost:11434/api/tags");
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+function findMuninnBinary() {
+  const { PATH = "" } = process.env;
+  const candidates = [
+    ...PATH.split(":").map((d) => join2(d, "muninn")),
+    join2(homedir2(), "bin/muninn"),
+    "/usr/local/bin/muninn"
+  ];
+  for (const candidate of candidates) {
+    try {
+      __require("node:fs").accessSync(candidate, __require("node:fs").constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function writeMcpConfig(mcpUrl) {
+  mkdirSync(join2(MCP_CONFIG_PATH2, ".."), { recursive: true });
+  let config = { mcpServers: {} };
+  if (existsSync(MCP_CONFIG_PATH2)) {
+    try {
+      config = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
+    } catch {
+    }
+  }
+  if (!config.mcpServers) config.mcpServers = {};
+  config.mcpServers.muninndb = {
+    url: mcpUrl,
+    lifecycle: "keep-alive",
+    directTools: true
+  };
+  writeFileSync(MCP_CONFIG_PATH2, JSON.stringify(config, null, 2) + "\n");
+}
+async function writeAgentsMd() {
+  if (!existsSync(AGENTS_MD_PATH)) {
+    writeFileSync(AGENTS_MD_PATH, AGENTS_MD_SECTION + "\n");
+    return;
+  }
+  const content = readFileSync2(AGENTS_MD_PATH, "utf-8");
+  if (content.includes("# Memory: MuninnDB")) {
+    const updated = removeMuninnSection(content);
+    writeFileSync(AGENTS_MD_PATH, updated.trim() + "\n\n" + AGENTS_MD_SECTION + "\n");
+  } else {
+    writeFileSync(AGENTS_MD_PATH, content.trim() + "\n\n" + AGENTS_MD_SECTION + "\n");
+  }
+}
+function removeMuninnSection(content) {
+  const lines = content.split("\n");
+  const output = [];
+  let skip = false;
+  for (const line of lines) {
+    if (line.startsWith("# Memory: MuninnDB")) {
+      skip = true;
+      continue;
+    }
+    if (skip && (line.startsWith("# ") || line.startsWith("## "))) {
+      skip = false;
+      output.push(line);
+      continue;
+    }
+    if (!skip) {
+      output.push(line);
+    }
+  }
+  return output.join("\n");
+}
+
+// index.ts
 function index_default(pi) {
   registerLifecycleHooks(pi);
   registerVaultInjection(pi);
   pi.registerCommand("muninn-setup", {
-    description: "Interactive setup for MuninnDB memory integration",
+    description: "Setup MuninnDB memory integration (install, configure, verify)",
     handler: async (_args, ctx) => {
-      const scriptPath = join2(__dirname, "muninn-setup.sh");
-      try {
-        ctx.ui.notify("Running MuninnDB setup...", "info");
-        await new Promise((resolve, reject) => {
-          execFile(
-            "bash",
-            [scriptPath],
-            { timeout: 12e4 },
-            (err, stdout, stderr) => {
-              if (stdout) ctx.ui.notify(stdout, "info");
-              if (stderr) ctx.ui.notify(stderr, "warning");
-              if (err) reject(err);
-              else resolve();
-            }
-          );
-        });
-        ctx.ui.notify("MuninnDB setup complete. Restart Pi to apply changes.", "info");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(`Setup failed: ${msg}`, "error");
-      }
+      await setupMuninnDB(ctx);
+    }
+  });
+  pi.registerCommand("muninn-remove", {
+    description: "Remove MuninnDB integration (keeps MuninnDB data)",
+    handler: async (_args, ctx) => {
+      await uninstallMuninnDB(ctx);
     }
   });
 }
