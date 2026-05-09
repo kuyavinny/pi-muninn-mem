@@ -1,16 +1,20 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import registerLifecycleHooks from "./src/extension";
-import { registerMemoryTools } from "./src/tools";
 import { registerVaultInjection } from "./src/mcp-bridge";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
+/**
+ * MuninnDB Memory Extension for Pi.
+ *
+ * MCP-first architecture:
+ * - SSE subscription for real-time push (contradictions + relevant memories)
+ * - First-turn context injection telling LLM to call muninn_where_left_off
+ * - All other operations via MCP tools (muninn_remember, muninn_recall, etc.)
+ * - Per-project vault auto-injection via MCP bridge
+ *
+ * The LLM is guided by ~/.pi/agent/AGENTS.md to save continuously
+ * and recall at session start.
+ */
 export default function (pi: ExtensionAPI) {
-  // Register lifecycle hooks for automatic memory management
   registerLifecycleHooks(pi);
-
-  // Register 3 custom Pi tools (remember, recall, decide)
-  registerMemoryTools(pi);
-
-  // Inject per-project vault into muninn_* MCP tool calls via tool_call hook
-  // (pi-mcp-adapter handles MCP tool discovery and proxying via mcp.json)
   registerVaultInjection(pi);
 }

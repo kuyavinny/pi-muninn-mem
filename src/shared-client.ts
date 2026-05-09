@@ -1,14 +1,14 @@
 /**
- * Shared MuninnDB client instance.
+ * Shared MuninnDB client singleton.
  *
- * Both the lifecycle hooks (extension.ts) and custom tools (tools.ts)
- * must use the same DualMuninnClient so that environment switches
- * via the `muninn_env` tool affect all operations.
+ * Reads the MCP configuration (mcp.json) to determine which MuninnDB
+ * server to connect to. The REST URL is derived from the MCP URL
+ * using the MuninnDB port convention (REST port = MCP port - 275).
  *
- * The initial environment is read from MUNINN_ENV (default: "prod").
+ * This is the single MuninnClient instance used by the extension
+ * for SSE subscription. All other operations go through MCP tools.
  */
-import { DualMuninnClient } from "./dual-client";
-import { DEFAULT_ENV, Environment } from "./vault";
+import { MuninnClient } from "./client";
+import { getMuninnRestUrl } from "./vault";
 
-const MUNINN_ENV = (process.env.MUNINN_ENV as Environment) || DEFAULT_ENV;
-export const client = new DualMuninnClient(MUNINN_ENV);
+export const client = new MuninnClient({ restUrl: getMuninnRestUrl() });

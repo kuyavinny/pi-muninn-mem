@@ -1,53 +1,76 @@
 // Types and utilities for MuninnDB vault management
+//
+// The MCP configuration (mcp.json) is the single source of truth for
+// which MuninnDB server to connect to. The REST URL is derived from
+// the MCP URL using the MuninnDB port convention:
+//   REST port = MCP port - 275
+//   e.g. http://host:8750/mcp → http://host:8475
+
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export const DEFAULT_VAULT = "default";
-export const MAX_AUTO_INJECT = 5;
 export const MAX_CONTEXT_CHARS = 2000;
 
-// Environment types for dev/prod support
-export type Environment = "dev" | "prod";
+// ─── MCP Configuration ──────────────────────────────────────────────
 
-// Environment-specific configuration
-interface EnvironmentConfig {
-  name: Environment;
+const MCP_CONFIG_PATH = join(homedir(), ".config/mcp/mcp.json");
+
+export interface McpConfig {
+  mcpServers: Record<string, { url?: string; [k: string]: unknown }>;
+}
+
+/** Read mcp.json to find MuninnDB server configuration. */
+export function readMcpConfig(): McpConfig | null {
+  try {
+    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Derive the REST API URL from the MCP URL.
+ *  MuninnDB convention: REST port = MCP port - 275, strip /mcp path.
+ *  e.g. http://127.0.0.1:8750/mcp → http://127.0.0.1:8475
+ *  e.g. http://127.0.0.1:8850/mcp → http://127.0.0.1:8575
+ */
+export function deriveRestUrl(mcpUrl: string): string {
+  const url = new URL(mcpUrl);
+  const restPort = parseInt(url.port) - 275;
+  url.port = String(restPort);
+  // Strip /mcp path suffix
+  url.pathname = url.pathname.replace(/\/mcp\/?$/, "");
+  if (url.pathname === "/" || url.pathname === "") {
+    // Return without trailing slash
+    url.pathname = "";
+  } else {
+    url.pathname = url.pathname.replace(/\/+$/, "");
+  }
+  return url.toString().replace(/\/+$/, "");
+}
+
+/** Get the MuninnDB REST URL by reading mcp.json.
+ *  Falls back to the default dev instance if mcp.json is unavailable.
+ */
+export function getMuninnRestUrl(): string {
+  const config = readMcpConfig();
+  const mcpUrl = config?.mcpServers?.muninndb?.url;
+  if (mcpUrl) return deriveRestUrl(mcpUrl);
+  return "http://127.0.0.1:8475";
+}
+
+// ─── MuninnDB Client Configuration ─────────────────────────────────
+
+export interface MuninnConfig {
   restUrl: string;
-  mcpUrl: string;
-  apiKey?: string;
   sseThreshold: number;
   pushOnWrite: boolean;
+  apiKey?: string;
 }
 
-// Environment definitions
-export const ENVIRONMENTS: Record<Environment, EnvironmentConfig> = {
-  dev: {
-    name: "dev",
-    restUrl: "http://127.0.0.1:8475",
-    mcpUrl: "http://127.0.0.1:8750/mcp",
-    sseThreshold: 0.7,
-    pushOnWrite: true,
-  },
-  prod: {
-    name: "prod",
-    restUrl: "http://127.0.0.1:8575",
-    mcpUrl: "http://127.0.0.1:8850/mcp",
-    sseThreshold: 0.7,
-    pushOnWrite: true,
-  },
-};
-
-// Default environment (prod)
-export const DEFAULT_ENV: Environment = "prod";
-
-// Legacy config for backward compatibility
-export interface MuninnConfig extends EnvironmentConfig {
-  /** Vault name override (auto-resolved from cwd if empty) */
-  vault?: string;
-}
-
-export const DEFAULT_CONFIG: MuninnConfig = {
-  ...ENVIRONMENTS.prod,
-  vault: undefined,
-};
+// ─── Vault Resolution ───────────────────────────────────────────────
 
 /**
  * Resolves the vault name from the current working directory.
@@ -67,8 +90,10 @@ export function resolveVaultName(cwd?: string): string {
   );
 }
 
+// ─── Memory Types ────────────────────────────────────────────────────
+
 /**
- * Memory types matching MuninnDB's 12 built-in types.
+ * Memory types matching MuninnDB's built-in types.
  */
 export enum MemoryType {
   Fact = "fact",
@@ -85,8 +110,11 @@ export enum MemoryType {
   Reference = "reference",
 }
 
+// ─── SSE Push Event ─────────────────────────────────────────────────
+
 /**
  * Push event received from SSE subscription.
+ * MuninnDB pushes these events when memories are written or contradictions detected.
  */
 export interface ActivationPush {
   trigger: "new_write" | "threshold_crossed" | "contradiction_detected";

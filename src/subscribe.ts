@@ -1,14 +1,19 @@
-import { DualMuninnClient } from "./dual-client";
+import { MuninnClient } from "./client";
 import { ActivationPush } from "./vault";
-import { client } from "./shared-client";
 
 /**
  * Starts an SSE subscription to receive real-time memory pushes.
+ *
  * Pushes are dispatched to the onPush callback as they arrive.
  * Runs as a background async loop with automatic reconnection.
+ *
+ * Only two event types are forwarded:
+ * - contradiction_detected: always forwarded (high priority)
+ * - new_write: only if score >= 0.7 (relevant memories)
+ * - threshold_crossed: silently dropped (informational only)
  */
 export async function startSSESubscription(
-  client: DualMuninnClient,
+  client: MuninnClient,
   vault: string,
   signal: AbortSignal,
   onPush: (push: ActivationPush) => void,
@@ -16,7 +21,7 @@ export async function startSSESubscription(
   (async () => {
     try {
       for await (const push of client.subscribe(vault, signal)) {
-        // Dispatch contradiction warnings with higher priority
+        // Contradiction warnings are always high priority
         if (push.trigger === "contradiction_detected") {
           onPush(push);
         } else if (
@@ -25,10 +30,10 @@ export async function startSSESubscription(
           push.score != null &&
           push.score >= 0.7
         ) {
-          // Only queue high-scoring pushes for context injection
+          // Only queue high-scoring relevant memories
           onPush(push);
         }
-        // threshold_crossed events are informational — skip for now
+        // threshold_crossed events are informational — skip
       }
     } catch {
       // Subscription ended (expected on disconnect)
