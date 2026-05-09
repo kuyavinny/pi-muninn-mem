@@ -235,6 +235,7 @@ var BIN_DIR = join2(HOME, "bin");
 var MCP_CONFIG_PATH2 = join2(HOME, ".config/mcp/mcp.json");
 var AGENTS_MD_PATH = join2(HOME, ".pi/agent/AGENTS.md");
 var SETTINGS_PATH = join2(HOME, ".pi/agent/settings.json");
+var PI_PACKAGES_DIR = join2(HOME, ".pi/agent/packages");
 var MUNINN_VERSION = "v0.5.1";
 var MUNINN_RELEASES = "https://github.com/scrypster/muninndb/releases/download";
 var MUNINN_DOCKER_IMAGE = "ghcr.io/scrypster/muninndb:latest";
@@ -345,6 +346,17 @@ async function setupMuninnDB(ctx) {
   const warn = (msg) => ctx.ui.notify(msg, "warning");
   const error = (msg) => ctx.ui.notify(msg, "error");
   log("\u2554\u2550\u2550\u2550 MuninnDB Setup \u2550\u2550\u2550\u2557\n");
+  if (!await checkMcpAdapter()) {
+    error("pi-mcp-adapter is not installed.");
+    log("  MuninnDB tools are exposed via MCP. Without pi-mcp-adapter, Pi cannot see them.");
+    log("  Install it with:");
+    log("    pi install npm:pi-mcp-adapter");
+    log("");
+    log("  Then re-run: /muninn-setup\n");
+    return;
+  } else {
+    log("  \u2713 pi-mcp-adapter is installed");
+  }
   log("Step 1: Checking MuninnDB...");
   let restPort = 8475;
   let mcpPort = 8750;
@@ -578,6 +590,17 @@ async function uninstallMuninnDB(ctx) {
   log("To remove MuninnDB data:  rm -rf ~/.muninn");
   log("To remove MuninnDB binary: rm ~/bin/muninn");
   log("To remove container:        docker rm -f muninndb\n");
+}
+async function checkMcpAdapter() {
+  try {
+    if (existsSync(SETTINGS_PATH)) {
+      const data = JSON.parse(readFileSync2(SETTINGS_PATH, "utf-8"));
+      const pkgs = data.packages || [];
+      return pkgs.some((p) => p.includes("pi-mcp-adapter"));
+    }
+  } catch {
+  }
+  return false;
 }
 async function checkHealth(port) {
   try {

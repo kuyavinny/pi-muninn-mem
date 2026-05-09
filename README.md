@@ -20,20 +20,24 @@ Connects Pi to [MuninnDB](https://github.com/scrypster/muninndb) for persistent,
 ## Install
 
 ```bash
-# Install the extension
+# 1. Install the extension (requires pi-mcp-adapter)
+pi install npm:pi-mcp-adapter
 pi install npm:@kuyavinny/pi-muninn-mem
 
-# Run setup (configures MuninnDB, MCP, AGENTS.md)
-# Option A: Inside Pi
+# 2. Run setup — installs MuninnDB, configures MCP, AGENTS.md
 /muninn-setup
+```
 
-# Option B: From command line
-~/.pi/agent/extensions/muninn-mem/muninn-setup.sh
+`/muninn-setup` handles everything: downloads MuninnDB if not found, starts it, configures MCP, writes AGENTS.md, creates the vault. No separate scripts needed.
+
+If MuninnDB isn't running when the extension loads, you'll see:
+```
+⚠️ MuninnDB is not running. Run /muninn-setup to install and configure it.
 ```
 
 ### MuninnDB Prerequisites
 
-The extension requires MuninnDB to be running. Install it first:
+None — `/muninn-setup` will install MuninnDB automatically. But if you prefer manual install:
 
 ```bash
 # Option 1: Binary (recommended)

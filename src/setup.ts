@@ -25,6 +25,7 @@ const BIN_DIR = join(HOME, "bin");
 const MCP_CONFIG_PATH = join(HOME, ".config/mcp/mcp.json");
 const AGENTS_MD_PATH = join(HOME, ".pi/agent/AGENTS.md");
 const SETTINGS_PATH = join(HOME, ".pi/agent/settings.json");
+const PI_PACKAGES_DIR = join(HOME, ".pi/agent/packages");
 
 // ─── MuninnDB release info ────────────────────────────────────────
 const MUNINN_VERSION = "v0.5.1";
@@ -130,6 +131,19 @@ export async function setupMuninnDB(ctx: any): Promise<void> {
   const error = (msg: string) => ctx.ui.notify(msg, "error");
 
   log("╔═══ MuninnDB Setup ═══╗\n");
+
+  // ─── Step 0: Check dependencies ─────────────────────────────────────
+  if (!await checkMcpAdapter()) {
+    error("pi-mcp-adapter is not installed.");
+    log("  MuninnDB tools are exposed via MCP. Without pi-mcp-adapter, Pi cannot see them.");
+    log("  Install it with:");
+    log("    pi install npm:pi-mcp-adapter");
+    log("");
+    log("  Then re-run: /muninn-setup\n");
+    return;
+  } else {
+    log("  ✓ pi-mcp-adapter is installed");
+  }
 
   // ─── Step 1: Ensure MuninnDB is running ───────────────────────────
   log("Step 1: Checking MuninnDB...");
@@ -432,6 +446,18 @@ export async function uninstallMuninnDB(ctx: any): Promise<void> {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
+
+async function checkMcpAdapter(): Promise<boolean> {
+  // Pi tracks installed packages in settings.json
+  try {
+    if (existsSync(SETTINGS_PATH)) {
+      const data = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
+      const pkgs: string[] = data.packages || [];
+      return pkgs.some((p) => p.includes("pi-mcp-adapter"));
+    }
+  } catch { /* fall through */ }
+  return false;
+}
 
 async function checkHealth(port: number): Promise<boolean> {
   try {

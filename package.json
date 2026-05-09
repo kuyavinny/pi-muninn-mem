@@ -26,7 +26,8 @@
     "typebox": "^1.1.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "pi-mcp-adapter": "*"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -36,9 +37,9 @@
     "index.ts",
     "dist/",
     "src/",
-    "AGENTS.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "package.json"
   ],
   "repository": {
     "type": "git",
