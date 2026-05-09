@@ -43,7 +43,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kuyavinny/pi-muninn-mem.git"
+    "url": "git+https://github.com/glenmorev_hm7/pi-muninn-mem.git"
   },
   "license": "MIT"
 }
