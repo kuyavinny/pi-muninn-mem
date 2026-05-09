@@ -59,8 +59,8 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
         customType: "muninn_session_start",
         content:
           `MuninnDB memory is connected (vault: "${currentVault}"). ` +
-          `Call muninn_where_left_off to restore context from your last session, ` +
-          `then muninn_recall whenever you need relevant memories.`,
+          `Call muninndb_muninn_where_left_off (via mcp) to restore context from your last session, ` +
+          `then muninndb_muninn_recall whenever you need relevant memories.`,
         display: false,
       },
     };
@@ -89,8 +89,8 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
           return (
             `[⚠️ Contradiction detected]: "${p.engram.concept}" — ` +
             `${p.why ?? "New information conflicts with existing memory"}. ` +
-            `Use muninn_evolve(id="${p.engram.id}", ...) to update it, ` +
-            `or muninn_consolidate to merge.`
+            `Use muninndb_muninn_evolve(id="${p.engram.id}", ...) to update it, ` +
+            `or muninndb_muninn_consolidate to merge.`
           );
         }
         return `[Memory Update]: ${p.engram?.concept}: ${p.engram?.content}`;
