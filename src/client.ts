@@ -51,6 +51,7 @@ export class MuninnClient {
     vault: string,
     signal?: AbortSignal,
   ): AsyncGenerator<ActivationPush> {
+    let reconnectAttempts = 0;
     const url = new URL(`${this.baseUrl}/api/subscribe`);
     url.searchParams.set("vault", vault);
     url.searchParams.set("push_on_write", String(this.config.pushOnWrite));
@@ -66,6 +67,8 @@ export class MuninnClient {
         if (!response.ok || !response.body) {
           throw new Error(`SSE connection failed: ${response.status}`);
         }
+
+        reconnectAttempts = 0; // Reset on successful connection
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -92,8 +95,10 @@ export class MuninnClient {
         }
       } catch (err) {
         if (signal?.aborted) break;
-        // Reconnect after 5 seconds on connection loss
-        await new Promise((r) => setTimeout(r, 5000));
+        // Exponential backoff: 5s, 10s, 20s, 40s, up to 5min max
+        const retryDelay = Math.min(5000 * Math.pow(2, reconnectAttempts), 300000);
+        reconnectAttempts++;
+        await new Promise((r) => setTimeout(r, retryDelay));
       }
     }
   }

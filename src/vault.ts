@@ -10,6 +10,11 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// ─── URL validation ─────────────────────────────────────────────────
+
+const LOCALHOST_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
+const ALLOWED_PORTS = new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
+
 export const DEFAULT_VAULT = "default";
 export const MAX_CONTEXT_CHARS = 2000;
 
@@ -38,12 +43,23 @@ export function readMcpConfig(): McpConfig | null {
  */
 export function deriveRestUrl(mcpUrl: string): string {
   const url = new URL(mcpUrl);
+
+  // Validate: must be localhost-only
+  if (!LOCALHOST_HOSTS.includes(url.hostname)) {
+    throw new Error(`MuninnDB URL must point to localhost, got: ${url.hostname}`);
+  }
+
   const restPort = parseInt(url.port) - 275;
+
+  // Validate: derived port must be in allowed set
+  if (!ALLOWED_PORTS.has(restPort)) {
+    throw new Error(`Invalid derived REST port: ${restPort} (from MCP port ${url.port})`);
+  }
+
   url.port = String(restPort);
   // Strip /mcp path suffix
   url.pathname = url.pathname.replace(/\/mcp\/?$/, "");
   if (url.pathname === "/" || url.pathname === "") {
-    // Return without trailing slash
     url.pathname = "";
   } else {
     url.pathname = url.pathname.replace(/\/+$/, "");
@@ -57,7 +73,13 @@ export function deriveRestUrl(mcpUrl: string): string {
 export function getMuninnRestUrl(): string {
   const config = readMcpConfig();
   const mcpUrl = config?.mcpServers?.muninndb?.url;
-  if (mcpUrl) return deriveRestUrl(mcpUrl);
+  if (mcpUrl) {
+    try {
+      return deriveRestUrl(mcpUrl);
+    } catch {
+      // Invalid URL — fall back to default
+    }
+  }
   return "http://127.0.0.1:8475";
 }
 
@@ -86,7 +108,8 @@ export function resolveVaultName(cwd?: string): string {
     base
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "") || DEFAULT_VAULT
+      .replace(/^-+|-+$/g, "")
+      .substring(0, 64) || DEFAULT_VAULT
   );
 }
 
