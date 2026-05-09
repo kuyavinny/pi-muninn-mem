@@ -12,11 +12,15 @@
  * - Meta-conversation filtering (skip chitchat, tool output, etc.)
  */
 
-// Ollama configuration — matches MuninnDB's enrichment URL pattern
-const OLLAMA_BASE_URL = process.env.MUNINN_OLLAMA_URL
-  ?.replace(/^ollama:\/\//, "http://")
-  ?.replace(/\/[^/]+$/, "") // strip model name
-  ?? "http://localhost:11434";
+// Ollama configuration
+// MUNINN_OLLAMA_URL format: ollama://localhost:11434/qwen3-embedding:0.6b
+// Strip the ollama:// prefix and model name to get the base HTTP URL.
+const OLLAMA_BASE_URL = (() => {
+  const url = process.env.MUNINN_OLLAMA_URL ?? "ollama://localhost:11434/qwen3-embedding:0.6b";
+  const http = url.replace(/^ollama:\/\//, "http://");
+  const base = http.replace(/\/[^/]+$/, ""); // strip /modelname
+  return base;
+})();
 
 const OLLAMA_MODEL = process.env.MUNINN_EXTRACT_MODEL ?? "llama3.2:1b";
 const OLLAMA_TIMEOUT_MS = 30_000; // 30s timeout for extraction

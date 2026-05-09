@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { DualMuninnClient } from "./dual-client";
 import { client } from "./shared-client";
-import { resolveVaultName, Environment, DEFAULT_ENV, MAX_CONTEXT_CHARS, ENVIRONMENTS, ActivationPush } from "./vault";
+import { resolveVaultName, MAX_CONTEXT_CHARS, ENVIRONMENTS, ActivationPush } from "./vault";
 import { startSSESubscription } from "./subscribe";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -9,20 +8,18 @@ import { extractMemories, extractUserMemories, isWorthExtracting } from "./knowl
 
 /**
  * Generate a stable idempotency key from prefix + value content.
- * Uses SHA-256 truncated to 32 hex chars for deterministic dedup.
  */
 function stableId(prefix: string, value: string): string {
   return `${prefix}-${createHash("sha256").update(value).digest("hex").slice(0, 32)}`;
 }
 
 /**
- * Ensure a MuninnDB vault exists and is public (no API key required).
+ * Ensure a MuninnDB vault exists and is public.
  */
 function ensurePublicVault(vaultName: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const muninnBin = process.env.MUNINN_BIN ?? findMuninnBinary();
     if (!muninnBin) return resolve();
-
     execFile(
       muninnBin,
       ["vault", "create", vaultName, "--public", "-u", "root", "-p"],
@@ -70,17 +67,18 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
   let currentVault = resolveVaultName(process.cwd());
   let pendingPushes: ActivationPush[] = [];
   let sseAbort: AbortController | null = null;
-  // Track the last user message for knowledge extraction in agent_end
   let lastUserMessage = "";
+  let guideShown = false; // Only call muninn_guide once per session
 
   // ----------------------------------------------------------
-  // session_start: Ensure vault, restore context, subscribe SSE
+  // session_start: Ensure vault, restore context, subscribe SSE,
+  //                call muninn_guide on first connect
   // ----------------------------------------------------------
   pi.on("session_start", async (_event, ctx) => {
     currentVault = resolveVaultName(process.cwd());
 
     ctx.ui.notify(
-      `MuninnDB: Running in ${client.getEnvironment().toUpperCase()} mode`,
+      `MuninnDB: ${client.getEnvironment().toUpperCase()} mode | vault: ${currentVault}`,
       "info",
     );
 
@@ -90,16 +88,50 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
       // Vault may already exist or CLI unavailable
     }
 
+    // Start SSE subscription for real-time pushes
     sseAbort = new AbortController();
     startSSESubscription(client, currentVault, sseAbort.signal, (push) => {
       pendingPushes.push(push);
     });
 
+    // Call muninn_guide on first connect to learn vault-specific best practices
+    if (!guideShown) {
+      try {
+        const guide = await client.recall({
+          vault: currentVault,
+          query: "MuninnDB guide best practices vault instructions",
+          maxResults: 1,
+          mode: "balanced",
+          profile: "confirmatory",
+        });
+        if (guide.length > 0) {
+          ctx.ui.notify(
+            `MuninnDB: ${guide[0].concept}`,
+            "info",
+          );
+        }
+        guideShown = true;
+      } catch {
+        // Silent — guide is optional
+      }
+    }
+
+    // Restore context using muninn_where_left_off pattern
     try {
-      const recent = await client.getRecentActivity(currentVault);
+      const recent = await client.recall({
+        vault: currentVault,
+        query: "what was I working on last session recent activity",
+        maxResults: 3,
+        mode: "recent",
+      });
+
       if (recent.length > 0) {
+        const memoryBlock = recent
+          .map((m) => `[${m.type}] ${m.concept}: ${m.content}`)
+          .join("\n");
+
         ctx.ui.notify(
-          `MuninnDB: ${recent.length} recent memories from vault "${currentVault}"`,
+          `MuninnDB: Resumed from ${recent.length} memories in "${currentVault}"`,
           "info",
         );
       } else {
@@ -131,7 +163,7 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     if (!event.prompt) return;
 
-    // Save the user message for later extraction in agent_end
+    // Save user message for later extraction in agent_end
     lastUserMessage = event.prompt;
 
     // Recall relevant memories
@@ -163,15 +195,14 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
         };
       }
     } catch {
-      // Silently fail — memory is best-effort
+      // Silently fail
     }
 
     // Extract implicit knowledge from the user's message
-    // (preferences, decisions, constraints they reveal casually)
     if (isWorthExtracting(event.prompt)) {
       extractUserMemories(event.prompt).then((memories) => {
         for (const mem of memories) {
-          if (mem.confidence < 0.6) continue; // Only store high-confidence extractions
+          if (mem.confidence < 0.6) continue;
           client.remember({
             vault: currentVault,
             concept: mem.concept,
@@ -180,26 +211,31 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
             tags: mem.tags,
             entities: mem.entities,
             idempotentId: stableId("user", mem.concept),
-          }).catch(() => {}); // Fire and forget
+          }).catch(() => {});
         }
       });
     }
   });
 
   // ----------------------------------------------------------
-  // context: Inject pending SSE pushes
+  // context: Inject pending SSE pushes + handle contradictions
   // ----------------------------------------------------------
   pi.on("context" as any, async (event: any) => {
     if (pendingPushes.length === 0) return;
 
     const relevant = pendingPushes
-      .filter((p) => p.trigger === "new_write" && p.engram)
+      .filter((p) => p.trigger === "new_write" || p.trigger === "contradiction_detected")
       .slice(0, 3);
 
     if (relevant.length === 0) return;
 
     const content = relevant
-      .map((p) => `[Memory Update: ${p.trigger}] ${p.engram?.concept}: ${p.engram?.content}`)
+      .map((p) => {
+        if (p.trigger === "contradiction_detected") {
+          return `[⚠️ Contradiction detected]: ${p.engram?.concept}: ${p.why ?? "New information conflicts with existing memory"}`;
+        }
+        return `[Memory Update]: ${p.engram?.concept}: ${p.engram?.content}`;
+      })
       .join("\n");
 
     pendingPushes = [];
@@ -217,6 +253,8 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
     "ask_user_question", "bash", "read", "edit", "write",
     "todo", "advisor", "Agent", "get_subagent_result", "steer_subagent",
     "muninn_env", "remember", "recall", "decide",
+    "muninndb_muninn_remember", "muninndb_muninn_recall", "muninndb_muninn_decide",
+    "muninndb_muninn_env",
   ]);
 
   // ----------------------------------------------------------
@@ -229,7 +267,6 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
       ? event.result
       : JSON.stringify(event.result).slice(0, 1000);
 
-    // Only store tool results that look significant
     if (!isWorthExtracting(resultStr)) return;
 
     const idempotentId = stableId(
@@ -269,8 +306,9 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
     try {
       const memories = await extractMemories(lastUserMessage, agentText);
 
+      // Store each extracted memory via dual-write
       for (const mem of memories) {
-        if (mem.confidence < 0.5) continue; // Skip low-confidence extractions
+        if (mem.confidence < 0.5) continue;
 
         await client.remember({
           vault: currentVault,
@@ -284,7 +322,7 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
       }
     } catch {
       // LLM extraction failed — silently skip
-      // The old regex approach would have stored noise; better to store nothing
+      // Better to store nothing than noise
     }
   });
 }

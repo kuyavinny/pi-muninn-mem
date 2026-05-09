@@ -1,6 +1,6 @@
 // Dual-client for MuninnDB dev/prod environments
 import { MuninnClient } from "./client";
-import { Environment, ENVIRONMENTS, DEFAULT_ENV, resolveVaultName } from "./vault";
+import { Environment, ENVIRONMENTS, DEFAULT_ENV } from "./vault";
 
 interface RememberParams {
   vault: string;
@@ -41,11 +41,16 @@ interface ActivationPush {
     type: string;
     score: number;
   };
+  why?: string;
 }
 
 /**
  * Dual MuninnDB client that writes to both environments but reads from current.
  * Supports seamless switching between dev and prod environments.
+ *
+ * Write operations go to BOTH environments (dual-write).
+ * Read operations go to the CURRENT environment only.
+ * SSE subscriptions follow the current environment.
  */
 export class DualMuninnClient {
   private devClient: MuninnClient;
@@ -58,23 +63,17 @@ export class DualMuninnClient {
     this.currentEnv = initialEnv;
   }
 
-  /**
-   * Get the client for the current environment.
-   */
+  /** Get the client for the current environment. */
   private getCurrentClient(): MuninnClient {
     return this.currentEnv === "dev" ? this.devClient : this.prodClient;
   }
 
-  /**
-   * Set the current environment (dev or prod).
-   */
+  /** Set the current environment (dev or prod). */
   setEnvironment(env: Environment): void {
     this.currentEnv = env;
   }
 
-  /**
-   * Get the current environment.
-   */
+  /** Get the current environment. */
   getEnvironment(): Environment {
     return this.currentEnv;
   }
@@ -85,9 +84,7 @@ export class DualMuninnClient {
    * If one environment fails, the other still succeeds.
    */
   async remember(params: RememberParams): Promise<{ id: string }> {
-    // Write to both environments in parallel
-    // Use the current environment's result as the authoritative response
-    const [currentResult, _otherResult] = await Promise.allSettled([
+    const [currentResult, otherResult] = await Promise.allSettled([
       this.getCurrentClient().remember(params),
       (this.currentEnv === "dev" ? this.prodClient : this.devClient).remember(params),
     ]);
@@ -96,27 +93,23 @@ export class DualMuninnClient {
       return currentResult.value;
     }
 
-    // Current env failed — fall back to the other env's result
-    if (_otherResult.status === "fulfilled") {
-      return _otherResult.value;
+    // Current env failed — fall back to the other
+    if (otherResult.status === "fulfilled") {
+      return otherResult.value;
     }
 
     // Both failed
     throw new Error(
-      `Failed to store memory in both environments: ${currentResult.reason?.message}, ${_otherResult.reason?.message}`
+      `Failed to store memory in both environments: ${currentResult.reason?.message}, ${otherResult.reason?.message}`,
     );
   }
 
-  /**
-   * Recall memories from the current environment only.
-   */
+  /** Recall memories from the current environment only. */
   async recall(params: RecallParams): Promise<Engram[]> {
     return this.getCurrentClient().recall(params);
   }
 
-  /**
-   * Link two memories in both environments (dual-write).
-   */
+  /** Link two memories in both environments (dual-write). */
   async link(params: {
     vault: string;
     sourceId: string;
@@ -124,7 +117,6 @@ export class DualMuninnClient {
     relation: string;
     weight?: number;
   }): Promise<void> {
-    // Best-effort dual-write — don't fail if one env is down
     const results = await Promise.allSettled([
       this.devClient.link(params),
       this.prodClient.link(params),
@@ -135,23 +127,17 @@ export class DualMuninnClient {
     }
   }
 
-  /**
-   * Get a memory by ID from current environment.
-   */
+  /** Get a memory by ID from current environment. */
   async read(vault: string, engramId: string): Promise<Engram | null> {
     return this.getCurrentClient().read(vault, engramId);
   }
 
-  /**
-   * Get recent activity from current environment.
-   */
+  /** Get recent activity from current environment. */
   async getRecentActivity(vault: string): Promise<Engram[]> {
     return this.getCurrentClient().getRecentActivity(vault);
   }
 
-  /**
-   * Subscribe to real-time memory push events from current environment.
-   */
+  /** Subscribe to real-time memory push events from current environment. */
   async *subscribe(
     vault: string,
     signal?: AbortSignal,
@@ -166,11 +152,9 @@ export class DualMuninnClient {
   async sync(fromEnv: Environment, toEnv: Environment, vault: string): Promise<void> {
     const fromClient = fromEnv === "dev" ? this.devClient : this.prodClient;
     const toClient = toEnv === "dev" ? this.devClient : this.prodClient;
-    
-    // Get all engrams from source
+
     const engrams = await fromClient.getRecentActivity(vault);
-    
-    // Write to target
+
     for (const engram of engrams) {
       try {
         await toClient.remember({
