@@ -18,7 +18,7 @@
     ]
   },
   "scripts": {
-    "build": "esbuild index.ts --bundle --format=esm --platform=node --outfile=dist/index.mjs --external:@earendil-works/pi-coding-agent",
+    "build": "npx esbuild index.ts --bundle --format=esm --platform=node --outfile=dist/index.mjs --external:@earendil-works/pi-coding-agent",
     "prepublishOnly": "npm run build",
     "check": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck --strict index.ts"
   },
