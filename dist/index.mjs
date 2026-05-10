@@ -1,3 +1,10 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // src/client.ts
 var MuninnClient = class {
   config;
@@ -80,13 +87,47 @@ var MuninnClient = class {
 };
 
 // src/vault.ts
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 var LOCALHOST_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
 var ALLOWED_PORTS = /* @__PURE__ */ new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
 var DEFAULT_VAULT = "default";
-var MCP_CONFIG_PATH = join(homedir(), ".config/mcp/mcp.json");
+var HOME = homedir();
+var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
+function readVaultMapping() {
+  try {
+    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
+    const raw = readFileSync(VAULTS_CONFIG_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+function writeVaultMapping(mapping) {
+  mkdirSync(join(HOME, ".muninn"), { recursive: true });
+  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
+  const { renameSync: renameSync2 } = __require("node:fs");
+  renameSync2(tmpFile, VAULTS_CONFIG_PATH);
+}
+var PROJECT_MARKERS2 = [
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+  "pyproject.toml",
+  "requirements.txt",
+  "Makefile",
+  "docker-compose.yml",
+  "docker-compose.yaml"
+];
+function isProjectDirectory(dir) {
+  return PROJECT_MARKERS2.some((marker) => existsSync(join(dir, marker)));
+}
+var MCP_CONFIG_PATH = join(HOME, ".config/mcp/mcp.json");
 function readMcpConfig() {
   try {
     const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
@@ -125,11 +166,19 @@ function getMuninnRestUrl() {
   return "http://127.0.0.1:8475";
 }
 function resolveVaultName(cwd) {
-  if (!cwd || cwd === process.env.HOME || cwd === "/") {
+  const dir = cwd || process.cwd() || "/";
+  if (dir === HOME || dir === "/") {
     return DEFAULT_VAULT;
   }
-  const base = cwd.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
-  return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
+  const mapping = readVaultMapping();
+  if (mapping[dir]) {
+    return mapping[dir];
+  }
+  if (isProjectDirectory(dir)) {
+    const base = dir.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
+    return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
+  }
+  return DEFAULT_VAULT;
 }
 
 // src/shared-client.ts
@@ -277,9 +326,9 @@ function registerVaultInjection(pi) {
 // src/setup.ts
 import {
   readFileSync as readFileSync2,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
+  writeFileSync as writeFileSync2,
+  mkdirSync as mkdirSync2,
+  existsSync as existsSync2,
   chmodSync,
   rmSync,
   renameSync,
@@ -289,14 +338,13 @@ import {
 import { join as join2 } from "node:path";
 import { homedir as homedir2, platform, arch, tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-var HOME = homedir2();
-var BIN_DIR = join2(HOME, "bin");
-var MCP_CONFIG_PATH2 = join2(HOME, ".config/mcp/mcp.json");
-var AGENTS_MD_PATH = join2(HOME, ".pi/agent/AGENTS.md");
-var SETTINGS_PATH = join2(HOME, ".pi/agent/settings.json");
-var MUNINN_ENV_PATH = join2(HOME, ".muninn/muninn.env");
-var MUNINN_DATA_DIR = join2(HOME, ".muninn/data");
+import { createHash } from "node:crypto";
+var HOME2 = homedir2();
+var BIN_DIR = join2(HOME2, "bin");
+var MCP_CONFIG_PATH2 = join2(HOME2, ".config/mcp/mcp.json");
+var AGENTS_MD_PATH = join2(HOME2, ".pi/agent/AGENTS.md");
+var SETTINGS_PATH = join2(HOME2, ".pi/agent/settings.json");
+var MUNINN_DATA_DIR = join2(HOME2, ".muninn/data");
 var MUNINN_VERSION = "v0.5.1";
 var MUNINN_RELEASES = "https://github.com/scrypster/muninndb/releases/download";
 var MUNINN_DOCKER_IMAGE = "ghcr.io/scrypster/muninndb:v0.5.1";
@@ -346,7 +394,7 @@ If you catch yourself about to make a second \`muninndb_muninn_remember\` call, 
 ## Tools Available
 
 All 39 MuninnDB tools are available via the \`mcp\` gateway with prefix \`muninndb_muninn_*\`.
-Call them using the \`mcp\` function, e.g.: \`mcp({ tool: "muninndb_muninn_where_left_off", args: "{\\"vault\\": \\"muninndb\\"}" })\`
+Call them using the \`mcp\` function, e.g.: \`mcp({ tool: "muninndb_muninn_where_left_off" })\`
 
 | Tool | Purpose |
 |------|---------|
@@ -362,7 +410,13 @@ Call them using the \`mcp\` function, e.g.: \`mcp({ tool: "muninndb_muninn_where
 
 ## Vault Strategy
 
-Each project gets its own vault (derived from the directory basename). The vault is injected automatically \u2014 you don't need to specify it.
+Vaults are created automatically on first write. Use /muninn-vault to manage them:
+
+- /muninn-vault status \u2014 Show current vault and mapping
+- /muninn-vault create [name] \u2014 Link current directory to a vault
+- /muninn-vault unlink \u2014 Remove vault mapping for current directory
+
+When in a project directory (has .git, package.json, etc.), the vault name is derived from the directory basename. Otherwise, the 'default' vault is used.
 
 ## Contradiction Detection
 
@@ -490,26 +544,11 @@ async function setupMuninnDB(ctx) {
     log("  \u2139 Ollama not found. Bundled embedder works offline.");
     log("  For better quality, install Ollama: https://ollama.com");
   }
-  log("\nStep 3: Creating vault...");
-  const muninnBin = findMuninnBinary();
-  if (muninnBin) {
-    try {
-      execFileSync(muninnBin, ["vault", "create", "muninndb", "--public", "-u", "root", "-p"], {
-        timeout: 5e3,
-        stdio: "pipe"
-      });
-      log("  \u2713 Vault 'muninndb' created (public)");
-    } catch (e) {
-      const msg = e?.stderr?.toString() || e?.message || "";
-      if (msg.includes("already exists") || msg.includes("409")) {
-        log("  \u2713 Vault 'muninndb' already exists");
-      } else {
-        warn("  Could not create vault \u2014 it will be created on first write");
-      }
-    }
-  } else {
-    log("  \u2139 Vault will be created on first write");
-  }
+  log("\nStep 3: Vault configuration...");
+  log("  Vaults are created automatically on first write.");
+  log("  Use /muninn-vault create [name] to link a project directory to a vault.");
+  log("  Use /muninn-vault status to see the current vault mapping.");
+  log("  Default vault: 'default' (used when not in a project directory).");
   log("\nStep 4: Configuring MCP...");
   const mcpUrl = `http://127.0.0.1:${mcpPort}/mcp`;
   await writeMcpConfig(mcpUrl);
@@ -536,8 +575,8 @@ async function installMuninnDB(log, warn, error) {
   if (platInfo) {
     log(`  Downloading MuninnDB ${MUNINN_VERSION} for ${platInfo.platformKey}...`);
     try {
-      mkdirSync(BIN_DIR, { recursive: true });
-      const tmpDir = mkdirSync(join2(tmpdir(), "muninn-setup-"), { recursive: true });
+      mkdirSync2(BIN_DIR, { recursive: true });
+      const tmpDir = mkdirSync2(join2(tmpdir(), "muninn-setup-"), { recursive: true });
       const tmpFile = join2(tmpDir, "muninn-download");
       const response = await fetch(platInfo.url);
       if (!response.ok) {
@@ -554,29 +593,19 @@ async function installMuninnDB(log, warn, error) {
   This binary may have been tampered with. Aborting.`
         );
       }
-      writeFileSync(tmpFile, buffer);
+      writeFileSync2(tmpFile, buffer);
       chmodSync(tmpFile, 488);
-      if (existsSync(platInfo.dest)) rmSync(platInfo.dest);
+      if (existsSync2(platInfo.dest)) rmSync(platInfo.dest);
       renameSync(tmpFile, platInfo.dest);
       rmSync(tmpDir, { recursive: true });
       log(`  \u2713 Binary installed to ${platInfo.dest} (SHA-256 verified)`);
       log("  Initializing MuninnDB...");
-      const token = randomBytes(32).toString("hex");
       try {
-        execFileSync(platInfo.dest, ["init", "--tool", "manual", "--token", token, "--yes", "--yes"], {
+        execFileSync(platInfo.dest, ["init", "--tool", "manual", "--no-token", "--yes", "--yes"], {
           stdio: "pipe",
           timeout: 3e4
         });
-        log("  \u2713 MuninnDB initialized (auth token generated)");
-        mkdirSync(join2(HOME, ".muninn"), { recursive: true });
-        const envPath = MUNINN_ENV_PATH;
-        const envContent = `# MuninnDB configuration (auto-generated by pi-muninn-mem)
-MUNINN_TOKEN=${token}
-# MUNINN_OLLAMA_URL=ollama://localhost:11434/nomic-embed-text
-# MUNINN_ENRICH_URL=ollama://localhost:11434/llama3.2:1b
-`;
-        atomicWriteFile(envPath, envContent);
-        log("  \u2713 Auth token saved to ~/.muninn/muninn.env");
+        log("  \u2713 MuninnDB initialized");
       } catch (e) {
         warn(`  Init warning: ${(e?.stderr?.toString() || e?.message || "unknown").substring(0, 100)}`);
       }
@@ -666,7 +695,7 @@ async function uninstallMuninnDB(ctx) {
     }
   }
   try {
-    if (existsSync(SETTINGS_PATH)) {
+    if (existsSync2(SETTINGS_PATH)) {
       const data = JSON.parse(readFileSync2(SETTINGS_PATH, "utf-8"));
       const pkgs = data.packages || [];
       const original = pkgs.length;
@@ -679,7 +708,7 @@ async function uninstallMuninnDB(ctx) {
   } catch {
   }
   try {
-    if (existsSync(MCP_CONFIG_PATH2)) {
+    if (existsSync2(MCP_CONFIG_PATH2)) {
       const data = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
       if (data.mcpServers?.muninndb) {
         delete data.mcpServers.muninndb;
@@ -690,7 +719,7 @@ async function uninstallMuninnDB(ctx) {
   } catch {
   }
   try {
-    if (existsSync(AGENTS_MD_PATH)) {
+    if (existsSync2(AGENTS_MD_PATH)) {
       const content = readFileSync2(AGENTS_MD_PATH, "utf-8");
       const result = removeMuninnSection(content);
       if (result.trim() !== content.trim()) {
@@ -707,9 +736,9 @@ async function uninstallMuninnDB(ctx) {
 }
 function atomicWriteFile(filePath, content) {
   const dir = join2(filePath, "..");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync2(dir, { recursive: true });
   const tmpFile = join2(dir, `.muninn-cfg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  writeFileSync(tmpFile, content);
+  writeFileSync2(tmpFile, content);
   renameSync(tmpFile, filePath);
 }
 function validateMcpUrl(url) {
@@ -741,7 +770,7 @@ async function checkOllama() {
 }
 async function checkMcpAdapter() {
   try {
-    if (existsSync(SETTINGS_PATH)) {
+    if (existsSync2(SETTINGS_PATH)) {
       const data = JSON.parse(readFileSync2(SETTINGS_PATH, "utf-8"));
       const pkgs = data.packages || [];
       return pkgs.some((p) => p.includes("pi-mcp-adapter"));
@@ -775,7 +804,7 @@ async function writeMcpConfig(mcpUrl) {
     throw new Error(`Invalid MCP URL: ${mcpUrl} \u2014 must be localhost with a known port`);
   }
   let config = { mcpServers: {} };
-  if (existsSync(MCP_CONFIG_PATH2)) {
+  if (existsSync2(MCP_CONFIG_PATH2)) {
     try {
       config = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
     } catch {
@@ -790,7 +819,7 @@ async function writeMcpConfig(mcpUrl) {
   atomicWriteFile(MCP_CONFIG_PATH2, JSON.stringify(config, null, 2) + "\n");
 }
 async function writeAgentsMd() {
-  if (!existsSync(AGENTS_MD_PATH)) {
+  if (!existsSync2(AGENTS_MD_PATH)) {
     atomicWriteFile(AGENTS_MD_PATH, AGENTS_MD_SECTION + "\n");
     return;
   }
@@ -827,6 +856,73 @@ function index_default(pi) {
     description: "Remove MuninnDB integration (keeps MuninnDB data)",
     handler: async (_args, ctx) => {
       await uninstallMuninnDB(ctx);
+    }
+  });
+  pi.registerCommand("muninn-vault", {
+    description: "Manage MuninnDB vaults (status, create, unlink)",
+    handler: async (args, ctx) => {
+      const cwd = process.cwd();
+      const subcommand = args?.trim().split(/\s+/)[0] || "status";
+      const name = args?.trim().split(/\s+/).slice(1).join(" ");
+      const mapping = readVaultMapping();
+      const currentVault = resolveVaultName(cwd);
+      const isProject = isProjectDirectory(cwd);
+      switch (subcommand) {
+        case "create": {
+          const vaultName = name || cwd.split("/").filter(Boolean).pop() || "default";
+          const sanitizedName = vaultName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64);
+          if (!sanitizedName || sanitizedName === "default") {
+            ctx.ui.notify('Cannot create a vault named "default". Choose a project-specific name.', "warning");
+            return;
+          }
+          mapping[cwd] = sanitizedName;
+          writeVaultMapping(mapping);
+          ctx.ui.notify(
+            `\u2713 Linked ${cwd} \u2192 vault "${sanitizedName}"
+  Memories in this directory will use vault "${sanitizedName}".
+  The vault will be created on first write.`,
+            "info"
+          );
+          break;
+        }
+        case "unlink": {
+          if (!mapping[cwd]) {
+            ctx.ui.notify("This directory is not explicitly linked to a vault.", "info");
+            return;
+          }
+          const removed = mapping[cwd];
+          delete mapping[cwd];
+          writeVaultMapping(mapping);
+          ctx.ui.notify(
+            `\u2713 Unlinked ${cwd} from vault "${removed}".
+  This directory will now use vault "${isProject ? cwd.split("/").pop()?.toLowerCase() : "default"}".`,
+            "info"
+          );
+          break;
+        }
+        case "status":
+        default: {
+          const lines = [
+            `Directory: ${cwd}`,
+            `Vault: ${currentVault}`,
+            `Resolution: ${mapping[cwd] ? "explicit (vaults.json)" : isProject ? "auto-detected (project marker)" : "default (non-project dir)"}`
+          ];
+          if (isProject) {
+            lines.push(`Project markers: ${PROJECT_MARKERS.filter((m) => __require("node:fs").existsSync(__require("node:path").join(cwd, m))).join(", ") || "none"}`);
+          }
+          const mappingCount = Object.keys(mapping).length;
+          if (mappingCount > 0) {
+            lines.push(`
+Linked vaults (${mappingCount}):`);
+            for (const [dir, vault] of Object.entries(mapping)) {
+              const marker = dir === cwd ? " \u2190 current" : "";
+              lines.push(`  ${vault.padEnd(20)} ${dir}${marker}`);
+            }
+          }
+          ctx.ui.notify(lines.join("\n"), "info");
+          break;
+        }
+      }
     }
   });
 }
