@@ -21,7 +21,7 @@ This single command handles everything:
 
 1. Checks that `pi-mcp-adapter` is installed
 2. Downloads and installs MuninnDB binary (with SHA-256 verification) if not found
-3. Starts MuninnDB, creates the vault
+3. Starts MuninnDB
 4. Writes MCP config to `~/.config/mcp/mcp.json`
 5. Adds MuninnDB instructions to `~/.pi/agent/AGENTS.md` (non-destructive)
 6. Verifies the setup
@@ -42,8 +42,11 @@ If MuninnDB isn't running when Pi starts, you'll see:
 | `before_agent_start` | On first turn: tell LLM to call `muninndb_muninn_where_left_off` |
 | `context` | Push contradiction alerts and relevant memory updates via SSE |
 | `session_shutdown` | Clean up SSE connection |
-| `/muninn-setup` | Install MuninnDB, configure MCP + AGENTS.md, create vault |
+| `/muninn-setup` | Install MuninnDB, configure MCP + AGENTS.md |
 | `/muninn-remove` | Unregister extension, remove MCP config, clean AGENTS.md |
+| `/muninn-vault status` | Show current vault and mapping |
+| `/muninn-vault create [name]` | Link current directory to a vault |
+| `/muninn-vault unlink` | Remove vault mapping for current directory |
 | `tool_call` | Auto-inject `vault` parameter into MuninnDB MCP tool calls |
 
 ### MCP tools (provided by MuninnDB via pi-mcp-adapter)
