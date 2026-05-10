@@ -13,6 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  *   /muninn-setup    — Install, configure, and verify MuninnDB integration
  *   /muninn-remove   — Remove MuninnDB integration (keeps MuninnDB data)
  *   /muninn-vault    — Manage vaults: status, create, unlink
+ *   /muninn-dream    — Run dream protocol: consolidate, evolve, enrich memories
  */
 export default function (pi: ExtensionAPI) {
   registerLifecycleHooks(pi);
@@ -109,6 +110,28 @@ export default function (pi: ExtensionAPI) {
           break;
         }
       }
+    },
+  });
+
+  pi.registerCommand("muninn-dream", {
+    description: "Run dream protocol: consolidate, evolve, and enrich memories",
+    handler: async (_args, ctx) => {
+      const vault = resolveVaultName(process.cwd());
+
+      ctx.ui.notify(
+        `🧠 MuninnDB Dream Protocol (vault: "${vault}")\n\n` +
+        `Run these MCP tools in sequence:\n\n` +
+        `1. muninndb_muninn_contradictions — Find unresolved contradictions\n` +
+        `   → For each contradiction: use muninndb_muninn_evolve to update the older memory, or muninndb_muninn_consolidate to merge them\n\n` +
+        `2. muninndb_muninn_recall(mode=recent, limit=20) — Review recent memories\n` +
+        `   → Identify overlapping or duplicate memories → muninndb_muninn_consolidate\n` +
+        `   → Identify outdated memories → muninndb_muninn_evolve\n\n` +
+        `3. muninndb_muninn_get_enrichment_candidates(stages=[summary,entities]) — Find memories missing summaries or entities\n` +
+        `   → Use muninndb_muninn_apply_enrichment to add missing summaries and entities\n\n` +
+        `4. muninndb_muninn_decide — Record any decisions made during this session\n\n` +
+        `5. muninndb_muninn_where_left_off — Save final session state for next time`,
+        "info",
+      );
     },
   });
 }

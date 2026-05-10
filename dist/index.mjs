@@ -327,7 +327,19 @@ When in a project directory (has .git, package.json, etc.), the vault name is de
 
 ## Contradiction Detection
 
-When you see a \`[\u26A0\uFE0F Contradiction detected]\` message, use \`muninndb_muninn_evolve\` to update the older memory or \`muninndb_muninn_consolidate\` to merge them.`;
+When you see a \`[\u26A0\uFE0F Contradiction detected]\` message, use \`muninndb_muninn_evolve\` to update the older memory or \`muninndb_muninn_consolidate\` to merge them.
+
+## Dream Protocol
+
+Run \`/muninn-dream\` before ending a session to consolidate and enrich memories:
+
+1. \`muninndb_muninn_contradictions\` \u2014 Find and resolve contradictions
+2. \`muninndb_muninn_recall(mode=recent, limit=20)\` \u2014 Review recent memories for overlaps or outdated info
+3. \`muninndb_muninn_consolidate\` overlapping memories, \`muninndb_muninn_evolve\` outdated ones
+4. \`muninndb_muninn_get_enrichment_candidates\` \u2014 Find memories missing summaries or entities
+5. \`muninndb_muninn_apply_enrichment\` \u2014 Add missing summaries and entities
+6. \`muninndb_muninn_decide\` \u2014 Record any decisions made this session
+7. \`muninndb_muninn_where_left_off\` \u2014 Save session state for next time`;
 function getPlatformBinary() {
   const p = platform();
   const a = arch();
@@ -833,6 +845,32 @@ Linked vaults (${entries.length}):`);
           break;
         }
       }
+    }
+  });
+  pi.registerCommand("muninn-dream", {
+    description: "Run dream protocol: consolidate, evolve, and enrich memories",
+    handler: async (_args, ctx) => {
+      const vault = resolveVaultName(process.cwd());
+      ctx.ui.notify(
+        `\u{1F9E0} MuninnDB Dream Protocol (vault: "${vault}")
+
+Run these MCP tools in sequence:
+
+1. muninndb_muninn_contradictions \u2014 Find unresolved contradictions
+   \u2192 For each contradiction: use muninndb_muninn_evolve to update the older memory, or muninndb_muninn_consolidate to merge them
+
+2. muninndb_muninn_recall(mode=recent, limit=20) \u2014 Review recent memories
+   \u2192 Identify overlapping or duplicate memories \u2192 muninndb_muninn_consolidate
+   \u2192 Identify outdated memories \u2192 muninndb_muninn_evolve
+
+3. muninndb_muninn_get_enrichment_candidates(stages=[summary,entities]) \u2014 Find memories missing summaries or entities
+   \u2192 Use muninndb_muninn_apply_enrichment to add missing summaries and entities
+
+4. muninndb_muninn_decide \u2014 Record any decisions made during this session
+
+5. muninndb_muninn_where_left_off \u2014 Save final session state for next time`,
+        "info"
+      );
     }
   });
 }
