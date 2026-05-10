@@ -5,12 +5,68 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
 
+// src/vault.ts
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+var DEFAULT_VAULT = "default";
+var MUNINN_REST_URL = "http://127.0.0.1:8475";
+var HOME = homedir();
+var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
+function readVaultMapping() {
+  try {
+    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
+    const raw = readFileSync(VAULTS_CONFIG_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+function writeVaultMapping(mapping) {
+  mkdirSync(join(HOME, ".muninn"), { recursive: true });
+  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
+  const { renameSync: renameSync2 } = __require("node:fs");
+  renameSync2(tmpFile, VAULTS_CONFIG_PATH);
+}
+var PROJECT_MARKERS2 = [
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+  "pyproject.toml",
+  "requirements.txt",
+  "Makefile",
+  "docker-compose.yml",
+  "docker-compose.yaml"
+];
+function isProjectDirectory(dir) {
+  return PROJECT_MARKERS2.some((marker) => existsSync(join(dir, marker)));
+}
+function resolveVaultName(cwd) {
+  const dir = cwd || process.cwd() || "/";
+  if (dir === HOME || dir === "/") {
+    return DEFAULT_VAULT;
+  }
+  const mapping = readVaultMapping();
+  if (mapping[dir]) {
+    return mapping[dir];
+  }
+  if (isProjectDirectory(dir)) {
+    const base = dir.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
+    return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
+  }
+  return DEFAULT_VAULT;
+}
+
 // src/client.ts
 var MuninnClient = class {
   config;
   constructor(config = {}) {
     this.config = {
-      restUrl: "http://127.0.0.1:8475",
+      restUrl: MUNINN_REST_URL,
       sseThreshold: 0.7,
       pushOnWrite: true,
       ...config
@@ -86,103 +142,8 @@ var MuninnClient = class {
   }
 };
 
-// src/vault.ts
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-var LOCALHOST_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
-var ALLOWED_PORTS = /* @__PURE__ */ new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
-var DEFAULT_VAULT = "default";
-var HOME = homedir();
-var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
-function readVaultMapping() {
-  try {
-    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
-    const raw = readFileSync(VAULTS_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-function writeVaultMapping(mapping) {
-  mkdirSync(join(HOME, ".muninn"), { recursive: true });
-  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
-  const { renameSync: renameSync2 } = __require("node:fs");
-  renameSync2(tmpFile, VAULTS_CONFIG_PATH);
-}
-var PROJECT_MARKERS2 = [
-  ".git",
-  "package.json",
-  "Cargo.toml",
-  "go.mod",
-  "pom.xml",
-  "build.gradle",
-  "pyproject.toml",
-  "requirements.txt",
-  "Makefile",
-  "docker-compose.yml",
-  "docker-compose.yaml"
-];
-function isProjectDirectory(dir) {
-  return PROJECT_MARKERS2.some((marker) => existsSync(join(dir, marker)));
-}
-var MCP_CONFIG_PATH = join(HOME, ".config/mcp/mcp.json");
-function readMcpConfig() {
-  try {
-    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-function deriveRestUrl(mcpUrl) {
-  const url = new URL(mcpUrl);
-  if (!LOCALHOST_HOSTS.includes(url.hostname)) {
-    throw new Error(`MuninnDB URL must point to localhost, got: ${url.hostname}`);
-  }
-  const restPort = parseInt(url.port) - 275;
-  if (!ALLOWED_PORTS.has(restPort)) {
-    throw new Error(`Invalid derived REST port: ${restPort} (from MCP port ${url.port})`);
-  }
-  url.port = String(restPort);
-  url.pathname = url.pathname.replace(/\/mcp\/?$/, "");
-  if (url.pathname === "/" || url.pathname === "") {
-    url.pathname = "";
-  } else {
-    url.pathname = url.pathname.replace(/\/+$/, "");
-  }
-  return url.toString().replace(/\/+$/, "");
-}
-function getMuninnRestUrl() {
-  const config = readMcpConfig();
-  const mcpUrl = config?.mcpServers?.muninndb?.url;
-  if (mcpUrl) {
-    try {
-      return deriveRestUrl(mcpUrl);
-    } catch {
-    }
-  }
-  return "http://127.0.0.1:8475";
-}
-function resolveVaultName(cwd) {
-  const dir = cwd || process.cwd() || "/";
-  if (dir === HOME || dir === "/") {
-    return DEFAULT_VAULT;
-  }
-  const mapping = readVaultMapping();
-  if (mapping[dir]) {
-    return mapping[dir];
-  }
-  if (isProjectDirectory(dir)) {
-    const base = dir.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
-    return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
-  }
-  return DEFAULT_VAULT;
-}
-
 // src/shared-client.ts
-var client = new MuninnClient({ restUrl: getMuninnRestUrl() });
+var client = new MuninnClient({ restUrl: MUNINN_REST_URL });
 
 // src/subscribe.ts
 async function startSSESubscription(client2, vault, signal, onPush) {
@@ -203,7 +164,7 @@ async function startSSESubscription(client2, vault, signal, onPush) {
 // src/extension.ts
 async function checkMuninnHealth(muninnClient) {
   try {
-    const url = muninnClient.config?.restUrl ?? "http://127.0.0.1:8475";
+    const url = muninnClient.config?.restUrl ?? MUNINN_REST_URL;
     const res = await fetch(`${url}/api/health`);
     return res.ok;
   } catch {
@@ -341,7 +302,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 var HOME2 = homedir2();
 var BIN_DIR = join2(HOME2, "bin");
-var MCP_CONFIG_PATH2 = join2(HOME2, ".config/mcp/mcp.json");
+var MCP_CONFIG_PATH = join2(HOME2, ".config/mcp/mcp.json");
 var AGENTS_MD_PATH = join2(HOME2, ".pi/agent/AGENTS.md");
 var SETTINGS_PATH = join2(HOME2, ".pi/agent/settings.json");
 var MUNINN_DATA_DIR = join2(HOME2, ".muninn/data");
@@ -355,8 +316,8 @@ var BINARY_HASHES = {
   "darwin-arm64": "5d6883ef3aa48345354b2bfc0a77d676834c6f7d71fbea11de61ecbaa76a44fe",
   "windows-amd64": "1aacd174870aedb7ce477a22432ff2e3bc3ac0a455bb43d58d966f111f961e12"
 };
-var LOCALHOST_HOSTS2 = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
-var ALLOWED_PORTS2 = /* @__PURE__ */ new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
+var LOCALHOST_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
+var ALLOWED_PORTS = /* @__PURE__ */ new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
 var AGENTS_MD_SECTION = `# Memory: MuninnDB
 
 You have persistent memory via MuninnDB. Use it actively \u2014 never rely on local or session-only memory.
@@ -562,7 +523,7 @@ async function setupMuninnDB(ctx) {
   } else {
     error(`  \u2717 MuninnDB: not responding on :${restPort}`);
   }
-  log(`  \u2713 MCP config: ${MCP_CONFIG_PATH2}`);
+  log(`  \u2713 MCP config: ${MCP_CONFIG_PATH}`);
   log(`  \u2713 AGENTS.md: ${AGENTS_MD_PATH}`);
   log(`  \u2713 Embedding: ${ollamaRunning ? "Ollama available (optional)" : "Bundled ONNX (default)"}`);
   log("\nNext steps:");
@@ -708,11 +669,11 @@ async function uninstallMuninnDB(ctx) {
   } catch {
   }
   try {
-    if (existsSync2(MCP_CONFIG_PATH2)) {
-      const data = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
+    if (existsSync2(MCP_CONFIG_PATH)) {
+      const data = JSON.parse(readFileSync2(MCP_CONFIG_PATH, "utf-8"));
       if (data.mcpServers?.muninndb) {
         delete data.mcpServers.muninndb;
-        atomicWriteFile(MCP_CONFIG_PATH2, JSON.stringify(data, null, 2) + "\n");
+        atomicWriteFile(MCP_CONFIG_PATH, JSON.stringify(data, null, 2) + "\n");
         log("  \u2713 Removed muninndb from MCP config");
       }
     }
@@ -744,9 +705,9 @@ function atomicWriteFile(filePath, content) {
 function validateMcpUrl(url) {
   try {
     const parsed = new URL(url);
-    if (!LOCALHOST_HOSTS2.includes(parsed.hostname)) return false;
+    if (!LOCALHOST_HOSTS.includes(parsed.hostname)) return false;
     const port = parseInt(parsed.port);
-    if (!ALLOWED_PORTS2.has(port)) return false;
+    if (!ALLOWED_PORTS.has(port)) return false;
     return true;
   } catch {
     return false;
@@ -804,9 +765,9 @@ async function writeMcpConfig(mcpUrl) {
     throw new Error(`Invalid MCP URL: ${mcpUrl} \u2014 must be localhost with a known port`);
   }
   let config = { mcpServers: {} };
-  if (existsSync2(MCP_CONFIG_PATH2)) {
+  if (existsSync2(MCP_CONFIG_PATH)) {
     try {
-      config = JSON.parse(readFileSync2(MCP_CONFIG_PATH2, "utf-8"));
+      config = JSON.parse(readFileSync2(MCP_CONFIG_PATH, "utf-8"));
     } catch {
     }
   }
@@ -816,7 +777,7 @@ async function writeMcpConfig(mcpUrl) {
     lifecycle: "keep-alive",
     directTools: true
   };
-  atomicWriteFile(MCP_CONFIG_PATH2, JSON.stringify(config, null, 2) + "\n");
+  atomicWriteFile(MCP_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 async function writeAgentsMd() {
   if (!existsSync2(AGENTS_MD_PATH)) {
