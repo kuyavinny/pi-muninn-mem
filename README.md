@@ -1,129 +1,165 @@
 # @kuyavinny/pi-muninn-mem
 
-MuninnDB memory provider extension for [Pi](https://github.com/badlogic/pi-mono).
+Persistent memory for [Pi](https://pi.dev) via [MuninnDB](https://github.com/scrypster/muninndb).
 
-Connects Pi to [MuninnDB](https://github.com/scrypster/muninndb) for persistent, semantic memory across sessions. Uses an MCP-first architecture — all LLM operations go through MuninnDB's 39 MCP tools, with the extension providing only what MCP cannot: real-time SSE push notifications for contradiction detection.
-
-## What It Does
-
-- **SSE subscription** — Real-time push for contradictions and relevant memory updates (no MCP equivalent)
-- **First-turn context injection** — Tells the LLM to call `muninndb_muninn_where_left_off` to restore session context
-- **Vault auto-injection** — Automatically fills the `vault` parameter on `muninn_*` MCP tool calls based on the project directory
-- **Contradiction alerts** — Formats SSE contradiction events with actionable suggestions (`muninndb_muninn_evolve`, `muninndb_muninn_consolidate`)
-
-## What It Does NOT Do
-
-- **No custom tools** — All 39 MCP tools (`muninn_remember`, `muninn_recall`, `muninn_decide`, etc.) are provided by MuninnDB via `pi-mcp-adapter`
-- **No REST calls in request path** — Zero per-turn latency; the LLM calls MCP tools directly
-- **No Ollama dependency** — Knowledge extraction is handled by the LLM itself via MCP + AGENTS.md prompting
+Gives Pi semantic memory across sessions — decisions, preferences, facts, procedures — that survives restarts. Uses an MCP-first architecture: all 39 MuninnDB tools are exposed through `pi-mcp-adapter`, and the extension provides only what MCP cannot (SSE push, context injection, setup automation).
 
 ## Install
 
 ```bash
-# 1. Install the extension (requires pi-mcp-adapter)
-pi install npm:pi-mcp-adapter
+pi install npm:pi-mcp-adapter        # required dependency
 pi install npm:@kuyavinny/pi-muninn-mem
+```
 
-# 2. Run setup — installs MuninnDB, configures MCP, AGENTS.md
+Then reload Pi and run:
+
+```
 /muninn-setup
 ```
 
-`/muninn-setup` handles everything: downloads MuninnDB if not found, starts it, configures MCP, writes AGENTS.md, creates the vault. No separate scripts needed.
+This single command handles everything:
 
-If MuninnDB isn't running when the extension loads, you'll see:
+1. Checks that `pi-mcp-adapter` is installed
+2. Downloads and installs MuninnDB binary (with SHA-256 verification) if not found
+3. Starts MuninnDB, creates the vault
+4. Writes MCP config to `~/.config/mcp/mcp.json`
+5. Adds MuninnDB instructions to `~/.pi/agent/AGENTS.md` (non-destructive)
+6. Verifies the setup
+
+If MuninnDB isn't running when Pi starts, you'll see:
+
 ```
 ⚠️ MuninnDB is not running. Run /muninn-setup to install and configure it.
 ```
 
-### MuninnDB Prerequisites
+## How It Works
 
-None — `/muninn-setup` will install MuninnDB automatically. But if you prefer manual install:
+### Extension (what this package provides)
 
-```bash
-# Option 1: Binary (recommended)
-curl -sSL https://github.com/scrypster/muninndb/releases/latest/download/muninn_linux_amd64 -o ~/bin/muninn
-chmod +x ~/bin/muninn
-muninn init --tool manual --no-token --yes --yes
-muninn start
+| Hook | What it does |
+|------|-------------|
+| `session_start` | Health-check MuninnDB, start SSE subscription, notify user |
+| `before_agent_start` | On first turn: tell LLM to call `muninndb_muninn_where_left_off` |
+| `context` | Push contradiction alerts and relevant memory updates via SSE |
+| `session_shutdown` | Clean up SSE connection |
+| `/muninn-setup` | Install MuninnDB, configure MCP + AGENTS.md, create vault |
+| `/muninn-remove` | Unregister extension, remove MCP config, clean AGENTS.md |
+| `tool_call` | Auto-inject `vault` parameter into MuninnDB MCP tool calls |
 
-# Option 2: Docker
-docker run -d --name muninndb \
-  -p 8474:8474 -p 8475:8475 -p 8476:8476 -p 8477:8477 -p 8750:8750 \
-  -v muninndb-data:/data \
-  ghcr.io/scrypster/muninndb:latest
+### MCP tools (provided by MuninnDB via pi-mcp-adapter)
 
-# Option 3: Podman
-podman run -d --name muninndb \
-  -p 8474:8474 -p 8475:8475 -p 8476:8476 -p 8477:8477 -p 8750:8750 \
-  -v muninndb-data:/data \
-  ghcr.io/scrypster/muninndb:latest
+The LLM calls these directly through the `mcp` gateway:
+
+| Tool | Purpose |
+|------|---------|
+| `muninndb_muninn_where_left_off` | Restore context from last session — **call this first** |
+| `muninndb_muninn_recall` | Semantic search for relevant memories |
+| `muninndb_muninn_remember` | Store a fact, decision, preference, or observation |
+| `muninndb_muninn_decide` | Record a decision with rationale and evidence |
+| `muninndb_muninn_remember_batch` | Store multiple memories at once (max 50) |
+| `muninndb_muninn_evolve` | Update a memory with new information |
+| `muninndb_muninn_consolidate` | Merge related memories |
+| `muninndb_muninn_contradictions` | Check for known contradictions |
+| `muninndb_muninn_guide` | Get vault-specific usage instructions |
+
+Plus 30 more — see `muninndb_muninn_guide` for the full list.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│              Pi Extension                    │
+│                                              │
+│  session_start  → Health check, start SSE   │
+│  before_agent_start (1st turn) → Inject     │
+│  context        → Push contradictions       │
+│  session_shutdown → Clean up SSE            │
+│  tool_call      → Auto-inject vault param   │
+│  /muninn-setup  → Install + configure        │
+│  /muninn-remove → Uninstall                  │
+└──────────────┬───────────────────┬───────────┘
+               │                   │
+          SSE subscription     MCP tools
+          (REST :8475)      (:8750/mcp)
+               │                   │
+               └───────┬───────────┘
+                       ▼
+                    MuninnDB
 ```
 
-### Embedding Configuration
+All LLM operations go through MCP. The extension only provides SSE subscription (which MCP cannot do), context injection, and setup automation.
 
-MuninnDB includes a **bundled ONNX embedder** (all-MiniLM-L6-v2, 384-dim) that works without any external service. This is the default — no configuration needed.
+## Embedding Configuration
 
-For better quality, you can optionally configure:
+MuninnDB ships with a **bundled ONNX embedder** (all-MiniLM-L6-v2, 384-dim) that works offline with zero configuration. This is the default.
+
+For better embeddings, edit `~/.muninn/muninn.env` and restart MuninnDB:
 
 | Provider | Config | Quality |
 |----------|--------|---------|
 | **Ollama** (recommended) | `MUNINN_OLLAMA_URL=ollama://localhost:11434/nomic-embed-text` | 768-dim, free, local |
 | LM Studio | `MUNINN_OPENAI_URL=http://localhost:1234/v1` | Any model |
-| llama.cpp | `MUNINN_OPENAI_URL=http://localhost:8080/v1` | Any model |
-| vLLM | `MUNINN_OPENAI_URL=http://localhost:8000/v1` | Any model |
 | OpenAI | `MUNINN_OPENAI_KEY=sk-...` | text-embedding-3-small |
 | Voyage AI | `MUNINN_VOYAGE_KEY=pa-...` | voyage-3 |
 
-For **enrichment** (summaries, entities, contradiction detection), add:
+For **enrichment** (summaries, entities, contradiction detection):
 
 ```bash
-# In ~/.muninn/muninn.env
 MUNINN_ENRICH_URL=ollama://localhost:11434/llama3.2:1b
 MUNINN_ENRICH_TIMEOUT=120s
 ```
 
-## Architecture
+Models are never auto-pulled — you must install them explicitly.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Pi Extension                         │
-│                                                         │
-│  session_start  → Start SSE, notify user                │
-│  before_agent_start (1st turn) → Inject context        │
-│  context        → Push contradictions + relevant writes  │
-│  session_shutdown → Clean up SSE                        │
-│                                                         │
-│  MCP Bridge → Auto-inject vault into muninn_* calls    │
-│  /muninn-setup → Interactive setup command              │
-└─────────────────────────────────────────────────────────┘
-         │                              │
-    SSE subscription              MCP tools
-    (REST :8475)               (:8750/mcp)
-         │                              │
-         └──────────┐    ┌──────────────┘
-                    ▼    ▼
-                 MuninnDB
-```
+## Security
 
-All LLM operations (`remember`, `recall`, `decide`, etc.) go through MCP tools. The extension only provides SSE subscription (which MCP cannot do) and context injection.
+- Downloaded binaries are verified with SHA-256 checksums before execution
+- Docker/Podman ports bound to `127.0.0.1` only (no network exposure)
+- Docker image pinned to `v0.5.1` (no `:latest`)
+- MuninnDB initialized with a generated authentication token
+- MCP config URLs validated as localhost-only with known ports
+- File writes are atomic (temp + rename)
+- All command execution uses argument arrays (no shell interpolation)
+- SSE reconnection uses exponential backoff (5s → 5min cap)
+- Tool calls validated against an allowlist of 18 known MuninnDB tools
+- Vault names sanitized and length-limited (64 chars)
 
 ## Uninstall
 
-```bash
-# From command line
-~/.pi/agent/extensions/muninn-mem/muninn-setup.sh --uninstall
-
-# Or manually:
-pi uninstall npm:@kuyavinny/pi-muninn-mem
-# Then remove from ~/.config/mcp/mcp.json and ~/.pi/agent/AGENTS.md
+```
+/muninn-remove
 ```
 
-## Configuration
+This removes the MCP config, AGENTS.md section, and Pi extension registration. MuninnDB data (`~/.muninn/`) is preserved — delete it manually if desired.
 
-- **MCP config**: `~/.config/mcp/mcp.json` — MuninnDB server URL
-- **AGENTS.md**: `~/.pi/agent/AGENTS.md` — LLM instructions (non-destructive, additive)
-- **MuninnDB config**: `~/.muninn/muninn.env` — Embedder/enricher settings
-- **Extension**: `~/.pi/agent/extensions/muninn-mem/`
+## Manual MuninnDB Install
+
+If you prefer not to use `/muninn-setup`, you can install MuninnDB manually:
+
+```bash
+# Binary (Linux/macOS/Windows, amd64/arm64)
+curl -sSL https://github.com/scrypster/muninndb/releases/latest/download/muninn-linux-amd64 -o ~/bin/muninn
+chmod +x ~/bin/muninn
+muninn init --tool manual --token YOUR_TOKEN --yes --yes
+muninn start
+
+# Docker (localhost only)
+docker run -d --name muninndb \
+  -p 127.0.0.1:8474:8474 -p 127.0.0.1:8475:8475 \
+  -p 127.0.0.1:8476:8476 -p 127.0.0.1:8477:8477 \
+  -p 127.0.0.1:8750:8750 \
+  -v muninndb-data:/data \
+  ghcr.io/scrypster/muninndb:v0.5.1
+```
+
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `~/.config/mcp/mcp.json` | MCP server URL for MuninnDB |
+| `~/.pi/agent/AGENTS.md` | LLM instructions for MuninnDB (non-destructive) |
+| `~/.muninn/muninn.env` | MuninnDB embedder/enricher settings |
+| `~/.muninn/data/` | MuninnDB data (Pebble DB) |
 
 ## License
 
