@@ -1,6 +1,6 @@
 {
   "name": "@kuyavinny/pi-muninn-mem",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "MuninnDB memory provider for Pi — SSE subscription, context injection, vault bridge",
   "keywords": [
     "pi-package",
