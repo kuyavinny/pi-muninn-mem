@@ -5,22 +5,17 @@
 // 2. Project marker detection (.git, package.json, etc.)
 // 3. Fallback to "default" for non-project directories
 //
-// The MCP configuration (mcp.json) is the single source of truth for
-// which MuninnDB server to connect to. The REST URL is derived from
-// the MCP URL using the MuninnDB port convention:
-//   REST port = MCP port - 275
-//   e.g. http://host:8750/mcp → http://host:8475
+// The SSE client connects directly to the MuninnDB REST API on port 8475.
+// No port calculation needed — these are fixed by MuninnDB.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// ─── URL validation ─────────────────────────────────────────────────
-
-const LOCALHOST_HOSTS = ["127.0.0.1", "localhost", "::1", "0.0.0.0"];
-const ALLOWED_PORTS = new Set([8474, 8475, 8476, 8477, 8574, 8575, 8576, 8577, 8750, 8850]);
+// ─── Constants ───────────────────────────────────────────────────────
 
 export const DEFAULT_VAULT = "default";
+export const MUNINN_REST_URL = "http://127.0.0.1:8475";
 export const MAX_CONTEXT_CHARS = 2000;
 
 // ─── Vault mapping ───────────────────────────────────────────────────
@@ -48,7 +43,6 @@ export function writeVaultMapping(mapping: VaultMapping): void {
   mkdirSync(join(HOME, ".muninn"), { recursive: true });
   const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
-  // Atomic rename
   const { renameSync } = require("node:fs");
   renameSync(tmpFile, VAULTS_CONFIG_PATH);
 }
@@ -74,80 +68,6 @@ export function isProjectDirectory(dir: string): boolean {
   return PROJECT_MARKERS.some((marker) => existsSync(join(dir, marker)));
 }
 
-// ─── MCP Configuration ──────────────────────────────────────────────
-
-const MCP_CONFIG_PATH = join(HOME, ".config/mcp/mcp.json");
-
-export interface McpConfig {
-  mcpServers: Record<string, { url?: string; [k: string]: unknown }>;
-}
-
-/** Read mcp.json to find MuninnDB server configuration. */
-export function readMcpConfig(): McpConfig | null {
-  try {
-    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-/** Derive the REST API URL from the MCP URL.
- *  MuninnDB convention: REST port = MCP port - 275, strip /mcp path.
- *  e.g. http://127.0.0.1:8750/mcp → http://127.0.0.1:8475
- *  e.g. http://127.0.0.1:8850/mcp → http://127.0.0.1:8575
- */
-export function deriveRestUrl(mcpUrl: string): string {
-  const url = new URL(mcpUrl);
-
-  // Validate: must be localhost-only
-  if (!LOCALHOST_HOSTS.includes(url.hostname)) {
-    throw new Error(`MuninnDB URL must point to localhost, got: ${url.hostname}`);
-  }
-
-  const restPort = parseInt(url.port) - 275;
-
-  // Validate: derived port must be in allowed set
-  if (!ALLOWED_PORTS.has(restPort)) {
-    throw new Error(`Invalid derived REST port: ${restPort} (from MCP port ${url.port})`);
-  }
-
-  url.port = String(restPort);
-  // Strip /mcp path suffix
-  url.pathname = url.pathname.replace(/\/mcp\/?$/, "");
-  if (url.pathname === "/" || url.pathname === "") {
-    url.pathname = "";
-  } else {
-    url.pathname = url.pathname.replace(/\/+$/, "");
-  }
-  return url.toString().replace(/\/+$/, "");
-}
-
-/** Get the MuninnDB REST URL by reading mcp.json.
- *  Falls back to the default dev instance if mcp.json is unavailable.
- */
-export function getMuninnRestUrl(): string {
-  const config = readMcpConfig();
-  const mcpUrl = config?.mcpServers?.muninndb?.url;
-  if (mcpUrl) {
-    try {
-      return deriveRestUrl(mcpUrl);
-    } catch {
-      // Invalid URL — fall back to default
-    }
-  }
-  return "http://127.0.0.1:8475";
-}
-
-// ─── MuninnDB Client Configuration ─────────────────────────────────
-
-export interface MuninnConfig {
-  restUrl: string;
-  sseThreshold: number;
-  pushOnWrite: boolean;
-  apiKey?: string;
-}
-
 // ─── Vault Resolution ───────────────────────────────────────────────
 
 /**
@@ -156,12 +76,6 @@ export interface MuninnConfig {
  * 1. Explicit mapping in ~/.muninn/vaults.json (highest priority)
  * 2. Project marker detection (.git, package.json, etc.)
  * 3. Fallback to "default" for non-project directories
- *
- * Examples:
- *   ~/.muninn/vaults.json maps "/home/user/work/api" → "api-server"
- *   /home/user/projects/my-app (has .git) → "my-app"
- *   /home/user/Downloads → "default"
- *   /home/user → "default"
  */
 export function resolveVaultName(cwd?: string): string {
   const dir = cwd || process.cwd() || "/";
@@ -195,9 +109,6 @@ export function resolveVaultName(cwd?: string): string {
 
 // ─── Memory Types ────────────────────────────────────────────────────
 
-/**
- * Memory types matching MuninnDB's built-in types.
- */
 export enum MemoryType {
   Fact = "fact",
   Decision = "decision",
@@ -215,10 +126,6 @@ export enum MemoryType {
 
 // ─── SSE Push Event ─────────────────────────────────────────────────
 
-/**
- * Push event received from SSE subscription.
- * MuninnDB pushes these events when memories are written or contradictions detected.
- */
 export interface ActivationPush {
   trigger: "new_write" | "threshold_crossed" | "contradiction_detected";
   engram_id?: string;

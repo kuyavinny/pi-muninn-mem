@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { client } from "./shared-client";
-import { resolveVaultName, ActivationPush } from "./vault";
+import { resolveVaultName, ActivationPush, MUNINN_REST_URL } from "./vault";
 import { startSSESubscription } from "./subscribe";
 
 /**
@@ -9,7 +9,7 @@ import { startSSESubscription } from "./subscribe";
  */
 async function checkMuninnHealth(muninnClient: any): Promise<boolean> {
   try {
-    const url = (muninnClient as any).config?.restUrl ?? "http://127.0.0.1:8475";
+    const url = (muninnClient as any).config?.restUrl ?? MUNINN_REST_URL;
     const res = await fetch(`${url}/api/health`);
     return res.ok;
   } catch {

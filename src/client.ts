@@ -1,4 +1,4 @@
-import { MuninnConfig, ActivationPush } from "./vault";
+import { MuninnConfig, ActivationPush, MUNINN_REST_URL } from "./vault";
 
 /**
  * Minimal MuninnDB REST client.
@@ -12,7 +12,7 @@ export class MuninnClient {
 
   constructor(config: Partial<MuninnConfig> = {}) {
     this.config = {
-      restUrl: "http://127.0.0.1:8475",
+      restUrl: MUNINN_REST_URL,
       sseThreshold: 0.7,
       pushOnWrite: true,
       ...config,
