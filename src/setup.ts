@@ -61,21 +61,23 @@ You have persistent memory via MuninnDB. Use it actively — never rely on local
 Before beginning any work, call \`muninndb_muninn_where_left_off\` (via mcp) to load context from the previous session.
 This is unconditional — not "if relevant" but "always, before beginning any work."
 
-## During Every Session
+## Save Protocol
 
-- **Save continuously** — this is a mindset, not a checklist.
-- Anything the user shares or that emerges from the work should be saved immediately.
-- Do not evaluate whether it is "important enough" — when in doubt, save it.
-- Do not wait to be asked. If you discover something useful, write it to memory.
+1. **ASSESS** — Before saving anything from this turn, review the entire exchange and identify ALL memories worth saving.
+2. **CHOOSE** — Based on the count:
+   - 1 memory → \`muninndb_muninn_remember\`
+   - 2+ memories → \`muninndb_muninn_remember_batch\`
+3. **SAVE** — Execute once. Never make two consecutive \`muninndb_muninn_remember\` calls.
+
+If you catch yourself about to make a second \`muninndb_muninn_remember\` call, stop and use \`muninndb_muninn_remember_batch\` instead.
 
 ### What to Save
 
-- **Decisions**: "We chose X because Y" → \`muninndb_muninn_decide\`
-- **Preferences**: "I prefer tabs over spaces" → \`muninndb_muninn_remember\` type=preference
-- **Issues**: "Service X fails on port 8080" → \`muninndb_muninn_remember\` type=issue
-- **Procedures**: "To deploy, run these steps..." → \`muninndb_muninn_remember\` type=procedure
-- **Facts**: "The API returns 429 on rate limits" → \`muninndb_muninn_remember\` type=fact
-- **Batch saves**: Use \`muninndb_muninn_remember_batch\` when storing multiple memories at once
+- **Decisions**: "We chose X because Y" → type=decision
+- **Preferences**: "I prefer tabs over spaces" → type=preference
+- **Issues**: "Service X fails on port 8080" → type=issue
+- **Procedures**: "To deploy, run these steps..." → type=procedure
+- **Facts**: "The API returns 429 on rate limits" → type=fact
 
 ### What NOT to Save
 

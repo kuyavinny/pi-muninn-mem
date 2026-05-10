@@ -244,13 +244,32 @@ var MUNINN_TOOLS = /* @__PURE__ */ new Set([
   "muninndb_muninn_list",
   "muninndb_muninn_summary"
 ]);
+var individualRememberCount = 0;
 function registerVaultInjection(pi) {
+  pi.on("before_agent_start", async () => {
+    individualRememberCount = 0;
+  });
   pi.on("tool_call", async (event) => {
     if (!MUNINN_TOOLS.has(event.toolName)) return;
     if (!event.input) return;
     const input = event.input;
     if (!input.vault) {
       event.input = { ...input, vault: resolveVaultName(process.cwd()) };
+    }
+    if (event.toolName === "muninndb_muninn_remember") {
+      individualRememberCount++;
+      if (individualRememberCount === 2) {
+        return {
+          message: {
+            customType: "muninn_batch_nudge",
+            content: "\u{1F4A1} You've made 2 individual muninn_remember calls this turn. Use muninndb_muninn_remember_batch for related memories instead of multiple individual calls. Assess all memories first, then batch save.",
+            display: true
+          }
+        };
+      }
+    }
+    if (event.toolName === "muninndb_muninn_remember_batch") {
+      individualRememberCount = 0;
     }
   });
 }
@@ -299,21 +318,23 @@ You have persistent memory via MuninnDB. Use it actively \u2014 never rely on lo
 Before beginning any work, call \`muninndb_muninn_where_left_off\` (via mcp) to load context from the previous session.
 This is unconditional \u2014 not "if relevant" but "always, before beginning any work."
 
-## During Every Session
+## Save Protocol
 
-- **Save continuously** \u2014 this is a mindset, not a checklist.
-- Anything the user shares or that emerges from the work should be saved immediately.
-- Do not evaluate whether it is "important enough" \u2014 when in doubt, save it.
-- Do not wait to be asked. If you discover something useful, write it to memory.
+1. **ASSESS** \u2014 Before saving anything from this turn, review the entire exchange and identify ALL memories worth saving.
+2. **CHOOSE** \u2014 Based on the count:
+   - 1 memory \u2192 \`muninndb_muninn_remember\`
+   - 2+ memories \u2192 \`muninndb_muninn_remember_batch\`
+3. **SAVE** \u2014 Execute once. Never make two consecutive \`muninndb_muninn_remember\` calls.
+
+If you catch yourself about to make a second \`muninndb_muninn_remember\` call, stop and use \`muninndb_muninn_remember_batch\` instead.
 
 ### What to Save
 
-- **Decisions**: "We chose X because Y" \u2192 \`muninndb_muninn_decide\`
-- **Preferences**: "I prefer tabs over spaces" \u2192 \`muninndb_muninn_remember\` type=preference
-- **Issues**: "Service X fails on port 8080" \u2192 \`muninndb_muninn_remember\` type=issue
-- **Procedures**: "To deploy, run these steps..." \u2192 \`muninndb_muninn_remember\` type=procedure
-- **Facts**: "The API returns 429 on rate limits" \u2192 \`muninndb_muninn_remember\` type=fact
-- **Batch saves**: Use \`muninndb_muninn_remember_batch\` when storing multiple memories at once
+- **Decisions**: "We chose X because Y" \u2192 type=decision
+- **Preferences**: "I prefer tabs over spaces" \u2192 type=preference
+- **Issues**: "Service X fails on port 8080" \u2192 type=issue
+- **Procedures**: "To deploy, run these steps..." \u2192 type=procedure
+- **Facts**: "The API returns 429 on rate limits" \u2192 type=fact
 
 ### What NOT to Save
 
