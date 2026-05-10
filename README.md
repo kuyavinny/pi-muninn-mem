@@ -47,6 +47,7 @@ If MuninnDB isn't running when Pi starts, you'll see:
 | `/muninn-vault status` | Show current vault and mapping |
 | `/muninn-vault create [name]` | Link current directory to a vault |
 | `/muninn-vault unlink` | Remove vault mapping for current directory |
+| `/muninn-dream` | Run dream protocol: consolidate, evolve, enrich memories |
 | `tool_call` | Auto-inject `vault` parameter into MuninnDB MCP tool calls |
 
 ### MCP tools (provided by MuninnDB via pi-mcp-adapter)

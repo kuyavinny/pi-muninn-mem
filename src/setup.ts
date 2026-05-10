@@ -118,7 +118,19 @@ When in a project directory (has .git, package.json, etc.), the vault name is de
 
 ## Contradiction Detection
 
-When you see a \`[⚠️ Contradiction detected]\` message, use \`muninndb_muninn_evolve\` to update the older memory or \`muninndb_muninn_consolidate\` to merge them.`;
+When you see a \`[⚠️ Contradiction detected]\` message, use \`muninndb_muninn_evolve\` to update the older memory or \`muninndb_muninn_consolidate\` to merge them.
+
+## Dream Protocol
+
+Run \`/muninn-dream\` before ending a session to consolidate and enrich memories:
+
+1. \`muninndb_muninn_contradictions\` — Find and resolve contradictions
+2. \`muninndb_muninn_recall(mode=recent, limit=20)\` — Review recent memories for overlaps or outdated info
+3. \`muninndb_muninn_consolidate\` overlapping memories, \`muninndb_muninn_evolve\` outdated ones
+4. \`muninndb_muninn_get_enrichment_candidates\` — Find memories missing summaries or entities
+5. \`muninndb_muninn_apply_enrichment\` — Add missing summaries and entities
+6. \`muninndb_muninn_decide\` — Record any decisions made this session
+7. \`muninndb_muninn_where_left_off\` — Save session state for next time`;
 
 // ─── Platform detection ────────────────────────────────────────────
 function getPlatformBinary(): { url: string; dest: string; hash: string; platformKey: string } | null {
