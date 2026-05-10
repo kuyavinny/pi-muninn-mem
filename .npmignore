@@ -1,22 +1,15 @@
 # Dev files
-src/
 node_modules/
 tsconfig.json
 .git/
 .gitignore
-DEV-PROD-PLAN.md
-FINAL-REDESIGN.md
-SUMMARY-AND-PARITY.md
-REDESIGN-PLAN.md
-thoughts/
-test-*
+.github/
+package-lock.json
 *.ts
 !index.ts
 
-# Include only what's needed
+# Include what's needed
 !dist/
-!muninn-setup.sh
-!AGENTS.md
 !README.md
 !LICENSE
 !package.json
