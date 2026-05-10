@@ -1,66 +1,59 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { client } from "./shared-client";
-import { resolveVaultName, ActivationPush, MUNINN_REST_URL } from "./vault";
-import { startSSESubscription } from "./subscribe";
+import { MuninnClient } from "./client";
+import { resolveVaultName, isProjectDirectory, readVaultMapping, writeVaultMapping, MUNINN_REST_URL, PROJECT_MARKERS } from "./vault";
+import type { ActivationPush } from "./vault";
 
-/**
- * Check if MuninnDB REST API is reachable.
- * Returns true if healthy, false if down.
- */
-async function checkMuninnHealth(muninnClient: any): Promise<boolean> {
-  try {
-    const url = (muninnClient as any).config?.restUrl ?? MUNINN_REST_URL;
-    const res = await fetch(`${url}/api/health`);
-    return res.ok;
-  } catch {
-    return false;
-  }
+// ─── Shared client singleton ──────────────────────────────────────────
+
+const client = new MuninnClient(MUNINN_REST_URL);
+
+// ─── SSE subscription filter ──────────────────────────────────────────
+
+function startSSESubscription(vault: string, signal: AbortSignal, onPush: (push: ActivationPush) => void): void {
+  (async () => {
+    try {
+      for await (const push of client.subscribe(vault, signal)) {
+        if (push.trigger === "contradiction_detected") {
+          onPush(push);
+        } else if (push.trigger === "new_write" && push.engram && push.score != null && push.score >= 0.7) {
+          onPush(push);
+        }
+      }
+    } catch { /* subscription ended */ }
+  })();
 }
 
-/**
- * Registers Pi lifecycle hooks for MuninnDB memory integration.
- *
- * This extension takes a minimal, MCP-first approach:
- * - SSE subscription for real-time push (contradictions + relevant memories)
- * - First-turn context injection telling the LLM to call muninn_where_left_off
- * - All other operations (remember, recall, decide, etc.) go through MCP tools
- *
- * The LLM is guided by AGENTS.md to save continuously and recall at session start.
- */
+// ─── Lifecycle hooks ──────────────────────────────────────────────────
+
 export default function registerLifecycleHooks(pi: ExtensionAPI) {
   let currentVault = resolveVaultName(process.cwd());
   let pendingPushes: ActivationPush[] = [];
   let sseAbort: AbortController | null = null;
   let isFirstTurn = true;
-  let muninnUp = false; // Set by session_start health check
+  let muninnUp = false;
 
-  // ─── session_start: Start SSE subscription + notify user ───
   pi.on("session_start", async (_event, ctx) => {
     currentVault = resolveVaultName(process.cwd());
     isFirstTurn = true;
 
-    // Check if MuninnDB is reachable
-    const healthResult = await checkMuninnHealth(client);
-    muninnUp = healthResult;
+    try {
+      const res = await fetch(`${MUNINN_REST_URL}/api/health`);
+      muninnUp = res.ok;
+    } catch {
+      muninnUp = false;
+    }
 
     if (!muninnUp) {
-      ctx.ui.notify(
-        "MuninnDB is not running. Run /muninn-setup to install and configure it.",
-        "warning",
-      );
-      return; // Don't start SSE if MuninnDB is down
+      ctx.ui.notify("MuninnDB is not running. Run /muninn-setup to install and configure it.", "warning");
+      return;
     }
 
     ctx.ui.notify(`MuninnDB: vault "${currentVault}"`, "info");
 
-    // Start SSE subscription for real-time push events
     sseAbort = new AbortController();
-    startSSESubscription(client, currentVault, sseAbort.signal, (push) => {
-      pendingPushes.push(push);
-    });
+    startSSESubscription(currentVault, sseAbort.signal, (push) => pendingPushes.push(push));
   });
 
-  // ─── session_shutdown: Clean up SSE ───
   pi.on("session_shutdown", async () => {
     sseAbort?.abort();
     sseAbort = null;
@@ -68,15 +61,6 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
     isFirstTurn = true;
   });
 
-  // ─── before_agent_start: Inject context on first turn only ───
-  //
-  // session_start cannot inject messages (it's side-effect only).
-  // before_agent_start can inject messages but fires on every turn.
-  // We use isFirstTurn to only inject the session-start instruction once.
-  //
-  // The LLM will call muninn_where_left_off via MCP, which restores
-  // context from the previous session. On subsequent turns, the LLM
-  // relies on AGENTS.md prompting to call muninn_recall when needed.
   pi.on("before_agent_start", async () => {
     if (!muninnUp || !isFirstTurn) return;
     isFirstTurn = false;
@@ -93,21 +77,12 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
     };
   });
 
-  // ─── context: Inject SSE push events ───
-  //
-  // MuninnDB pushes two types of events we care about:
-  // 1. contradiction_detected — new memory conflicts with existing one
-  // 2. new_write (score >= 0.7) — relevant memory was just stored
-  //
-  // These are injected into the LLM's context as they arrive,
-  // so the agent can act on contradictions immediately.
   pi.on("context" as any, async () => {
     if (pendingPushes.length === 0) return;
 
     const relevant = pendingPushes
       .filter((p) => p.trigger === "new_write" || p.trigger === "contradiction_detected")
       .slice(0, 3);
-
     if (relevant.length === 0) return;
 
     const content = relevant
@@ -125,12 +100,6 @@ export default function registerLifecycleHooks(pi: ExtensionAPI) {
       .join("\n");
 
     pendingPushes = [];
-    return {
-      message: {
-        customType: "muninn_memory",
-        content,
-        display: true,
-      },
-    };
+    return { message: { customType: "muninn_memory", content, display: true } };
   });
 }

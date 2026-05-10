@@ -1,28 +1,23 @@
 import registerLifecycleHooks from "./src/extension";
 import { registerVaultInjection } from "./src/mcp-bridge";
 import { setupMuninnDB, uninstallMuninnDB } from "./src/setup";
-import { resolveVaultName, readVaultMapping, writeVaultMapping, isProjectDirectory } from "./src/vault";
+import { resolveVaultName, readVaultMapping, writeVaultMapping, isProjectDirectory, PROJECT_MARKERS } from "./src/vault";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
  * MuninnDB Memory Extension for Pi.
  *
- * MCP-first architecture:
- * - SSE subscription for real-time push (contradictions + relevant memories)
- * - First-turn context injection telling LLM to call muninndb_muninn_where_left_off
- * - All other operations via MCP tools (muninn_remember, muninn_recall, etc.)
- * - Per-project vault auto-injection via MCP bridge
- *
  * Commands:
  *   /muninn-setup    — Install, configure, and verify MuninnDB integration
  *   /muninn-remove   — Remove MuninnDB integration (keeps MuninnDB data)
- *   /muninn-vault    — Show current vault, create/link vault for project directory
+ *   /muninn-vault    — Manage vaults: status, create, unlink
  */
 export default function (pi: ExtensionAPI) {
   registerLifecycleHooks(pi);
   registerVaultInjection(pi);
 
-  // Interactive setup: install MuninnDB, configure MCP, AGENTS.md
   pi.registerCommand("muninn-setup", {
     description: "Setup MuninnDB memory integration (install, configure, verify)",
     handler: async (_args, ctx) => {
@@ -30,7 +25,6 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Uninstall: remove extension, MCP config, AGENTS.md section
   pi.registerCommand("muninn-remove", {
     description: "Remove MuninnDB integration (keeps MuninnDB data)",
     handler: async (_args, ctx) => {
@@ -38,7 +32,6 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Vault management: show status, create/link, unlink
   pi.registerCommand("muninn-vault", {
     description: "Manage MuninnDB vaults (status, create, unlink)",
     handler: async (args, ctx) => {
@@ -53,24 +46,19 @@ export default function (pi: ExtensionAPI) {
       switch (subcommand) {
         case "create": {
           const vaultName = name || cwd.split("/").filter(Boolean).pop() || "default";
-          const sanitizedName = vaultName
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .substring(0, 64);
+          const sanitized = vaultName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64);
 
-          if (!sanitizedName || sanitizedName === "default") {
+          if (!sanitized || sanitized === "default") {
             ctx.ui.notify('Cannot create a vault named "default". Choose a project-specific name.', "warning");
             return;
           }
 
-          // Add to mapping
-          mapping[cwd] = sanitizedName;
+          mapping[cwd] = sanitized;
           writeVaultMapping(mapping);
 
           ctx.ui.notify(
-            `✓ Linked ${cwd} → vault "${sanitizedName}"\n` +
-            `  Memories in this directory will use vault "${sanitizedName}".\n` +
+            `✓ Linked ${cwd} → vault "${sanitized}"\n` +
+            `  Memories in this directory will use vault "${sanitized}".\n` +
             `  The vault will be created on first write.`,
             "info",
           );
@@ -87,9 +75,10 @@ export default function (pi: ExtensionAPI) {
           delete mapping[cwd];
           writeVaultMapping(mapping);
 
+          const fallback = isProject ? cwd.split("/").filter(Boolean).pop()?.toLowerCase() : "default";
           ctx.ui.notify(
             `✓ Unlinked ${cwd} from vault "${removed}".\n` +
-            `  This directory will now use vault "${isProject ? cwd.split("/").pop()?.toLowerCase() : "default"}".`,
+            `  This directory will now use vault "${fallback}".`,
             "info",
           );
           break;
@@ -104,15 +93,15 @@ export default function (pi: ExtensionAPI) {
           ];
 
           if (isProject) {
-            lines.push(`Project markers: ${PROJECT_MARKERS.filter((m) => require("node:fs").existsSync(require("node:path").join(cwd, m))).join(", ") || "none"}`);
+            const markers = PROJECT_MARKERS.filter((m) => existsSync(join(cwd, m)));
+            if (markers.length > 0) lines.push(`Project markers: ${markers.join(", ")}`);
           }
 
-          const mappingCount = Object.keys(mapping).length;
-          if (mappingCount > 0) {
-            lines.push(`\nLinked vaults (${mappingCount}):`);
-            for (const [dir, vault] of Object.entries(mapping)) {
-              const marker = dir === cwd ? " ← current" : "";
-              lines.push(`  ${vault.padEnd(20)} ${dir}${marker}`);
+          const entries = Object.entries(mapping);
+          if (entries.length > 0) {
+            lines.push(`\nLinked vaults (${entries.length}):`);
+            for (const [dir, vault] of entries) {
+              lines.push(`  ${vault.padEnd(20)} ${dir}${dir === cwd ? " ← current" : ""}`);
             }
           }
 

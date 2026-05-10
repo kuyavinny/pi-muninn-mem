@@ -1,35 +1,10 @@
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-
 // src/vault.ts
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 var DEFAULT_VAULT = "default";
 var MUNINN_REST_URL = "http://127.0.0.1:8475";
-var HOME = homedir();
-var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
-function readVaultMapping() {
-  try {
-    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
-    const raw = readFileSync(VAULTS_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-function writeVaultMapping(mapping) {
-  mkdirSync(join(HOME, ".muninn"), { recursive: true });
-  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
-  const { renameSync: renameSync2 } = __require("node:fs");
-  renameSync2(tmpFile, VAULTS_CONFIG_PATH);
-}
-var PROJECT_MARKERS2 = [
+var PROJECT_MARKERS = [
   ".git",
   "package.json",
   "Cargo.toml",
@@ -42,18 +17,30 @@ var PROJECT_MARKERS2 = [
   "docker-compose.yml",
   "docker-compose.yaml"
 ];
+var HOME = homedir();
+var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
+function readVaultMapping() {
+  try {
+    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
+    return JSON.parse(readFileSync(VAULTS_CONFIG_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function writeVaultMapping(mapping) {
+  mkdirSync(join(HOME, ".muninn"), { recursive: true });
+  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
+  renameSync(tmpFile, VAULTS_CONFIG_PATH);
+}
 function isProjectDirectory(dir) {
-  return PROJECT_MARKERS2.some((marker) => existsSync(join(dir, marker)));
+  return PROJECT_MARKERS.some((marker) => existsSync(join(dir, marker)));
 }
 function resolveVaultName(cwd) {
   const dir = cwd || process.cwd() || "/";
-  if (dir === HOME || dir === "/") {
-    return DEFAULT_VAULT;
-  }
+  if (dir === HOME || dir === "/") return DEFAULT_VAULT;
   const mapping = readVaultMapping();
-  if (mapping[dir]) {
-    return mapping[dir];
-  }
+  if (mapping[dir]) return mapping[dir];
   if (isProjectDirectory(dir)) {
     const base = dir.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
     return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
@@ -63,50 +50,30 @@ function resolveVaultName(cwd) {
 
 // src/client.ts
 var MuninnClient = class {
-  config;
-  constructor(config = {}) {
-    this.config = {
-      restUrl: MUNINN_REST_URL,
-      sseThreshold: 0.7,
-      pushOnWrite: true,
-      ...config
-    };
-  }
-  get baseUrl() {
-    return this.config.restUrl;
-  }
-  get headers() {
-    const h = { "Content-Type": "application/json" };
-    if (this.config.apiKey) {
-      h["Authorization"] = `Bearer ${this.config.apiKey}`;
-    }
-    return h;
-  }
-  /** Update the REST API URL at runtime (e.g., if mcp.json changes). */
-  setBaseUrl(url) {
-    this.config.restUrl = url.replace(/\/+$/, "");
+  baseUrl;
+  constructor(restUrl = MUNINN_REST_URL) {
+    this.baseUrl = restUrl.replace(/\/+$/, "");
   }
   /**
    * Subscribe to real-time memory push events via SSE.
    *
-   * This is the ONLY REST operation we need. MCP has no equivalent
-   * for server-push notifications. MuninnDB pushes:
-   * - new_write: when a memory is stored that matches the subscription threshold
-   * - contradiction_detected: when a new memory conflicts with an existing one
-   * - threshold_crossed: when a memory's activation score crosses the threshold
+   * MuninnDB pushes:
+   * - new_write: memory stored matching the subscription threshold
+   * - contradiction_detected: new memory conflicts with existing one
+   * - threshold_crossed: memory's activation score crosses threshold
    *
-   * Auto-reconnects on connection loss with a 5-second delay.
+   * Auto-reconnects with exponential backoff (5s → 5min).
    */
   async *subscribe(vault, signal) {
     let reconnectAttempts = 0;
     const url = new URL(`${this.baseUrl}/api/subscribe`);
     url.searchParams.set("vault", vault);
-    url.searchParams.set("push_on_write", String(this.config.pushOnWrite));
-    url.searchParams.set("threshold", String(this.config.sseThreshold));
+    url.searchParams.set("push_on_write", "true");
+    url.searchParams.set("threshold", "0.7");
     while (!signal?.aborted) {
       try {
         const response = await fetch(url.toString(), {
-          headers: { ...this.headers, Accept: "text/event-stream" },
+          headers: { Accept: "text/event-stream" },
           signal
         });
         if (!response.ok || !response.body) {
@@ -125,8 +92,7 @@ var MuninnClient = class {
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               try {
-                const push = JSON.parse(line.slice(6));
-                yield push;
+                yield JSON.parse(line.slice(6));
               } catch {
               }
             }
@@ -142,14 +108,12 @@ var MuninnClient = class {
   }
 };
 
-// src/shared-client.ts
-var client = new MuninnClient({ restUrl: MUNINN_REST_URL });
-
-// src/subscribe.ts
-async function startSSESubscription(client2, vault, signal, onPush) {
+// src/extension.ts
+var client = new MuninnClient(MUNINN_REST_URL);
+function startSSESubscription(vault, signal, onPush) {
   (async () => {
     try {
-      for await (const push of client2.subscribe(vault, signal)) {
+      for await (const push of client.subscribe(vault, signal)) {
         if (push.trigger === "contradiction_detected") {
           onPush(push);
         } else if (push.trigger === "new_write" && push.engram && push.score != null && push.score >= 0.7) {
@@ -160,17 +124,6 @@ async function startSSESubscription(client2, vault, signal, onPush) {
     }
   })();
 }
-
-// src/extension.ts
-async function checkMuninnHealth(muninnClient) {
-  try {
-    const url = muninnClient.config?.restUrl ?? MUNINN_REST_URL;
-    const res = await fetch(`${url}/api/health`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 function registerLifecycleHooks(pi) {
   let currentVault = resolveVaultName(process.cwd());
   let pendingPushes = [];
@@ -180,20 +133,19 @@ function registerLifecycleHooks(pi) {
   pi.on("session_start", async (_event, ctx) => {
     currentVault = resolveVaultName(process.cwd());
     isFirstTurn = true;
-    const healthResult = await checkMuninnHealth(client);
-    muninnUp = healthResult;
+    try {
+      const res = await fetch(`${MUNINN_REST_URL}/api/health`);
+      muninnUp = res.ok;
+    } catch {
+      muninnUp = false;
+    }
     if (!muninnUp) {
-      ctx.ui.notify(
-        "MuninnDB is not running. Run /muninn-setup to install and configure it.",
-        "warning"
-      );
+      ctx.ui.notify("MuninnDB is not running. Run /muninn-setup to install and configure it.", "warning");
       return;
     }
     ctx.ui.notify(`MuninnDB: vault "${currentVault}"`, "info");
     sseAbort = new AbortController();
-    startSSESubscription(client, currentVault, sseAbort.signal, (push) => {
-      pendingPushes.push(push);
-    });
+    startSSESubscription(currentVault, sseAbort.signal, (push) => pendingPushes.push(push));
   });
   pi.on("session_shutdown", async () => {
     sseAbort?.abort();
@@ -223,13 +175,7 @@ function registerLifecycleHooks(pi) {
       return `[Memory Update]: ${p.engram?.concept}: ${p.engram?.content}`;
     }).join("\n");
     pendingPushes = [];
-    return {
-      message: {
-        customType: "muninn_memory",
-        content,
-        display: true
-      }
-    };
+    return { message: { customType: "muninn_memory", content, display: true } };
   });
 }
 
@@ -292,7 +238,7 @@ import {
   existsSync as existsSync2,
   chmodSync,
   rmSync,
-  renameSync,
+  renameSync as renameSync2,
   accessSync,
   constants
 } from "node:fs";
@@ -557,7 +503,7 @@ async function installMuninnDB(log, warn, error) {
       writeFileSync2(tmpFile, buffer);
       chmodSync(tmpFile, 488);
       if (existsSync2(platInfo.dest)) rmSync(platInfo.dest);
-      renameSync(tmpFile, platInfo.dest);
+      renameSync2(tmpFile, platInfo.dest);
       rmSync(tmpDir, { recursive: true });
       log(`  \u2713 Binary installed to ${platInfo.dest} (SHA-256 verified)`);
       log("  Initializing MuninnDB...");
@@ -700,7 +646,7 @@ function atomicWriteFile(filePath, content) {
   mkdirSync2(dir, { recursive: true });
   const tmpFile = join2(dir, `.muninn-cfg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   writeFileSync2(tmpFile, content);
-  renameSync(tmpFile, filePath);
+  renameSync2(tmpFile, filePath);
 }
 function validateMcpUrl(url) {
   try {
@@ -804,6 +750,8 @@ function removeMuninnSection(content) {
 }
 
 // index.ts
+import { existsSync as existsSync3 } from "node:fs";
+import { join as join3 } from "node:path";
 function index_default(pi) {
   registerLifecycleHooks(pi);
   registerVaultInjection(pi);
@@ -831,16 +779,16 @@ function index_default(pi) {
       switch (subcommand) {
         case "create": {
           const vaultName = name || cwd.split("/").filter(Boolean).pop() || "default";
-          const sanitizedName = vaultName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64);
-          if (!sanitizedName || sanitizedName === "default") {
+          const sanitized = vaultName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64);
+          if (!sanitized || sanitized === "default") {
             ctx.ui.notify('Cannot create a vault named "default". Choose a project-specific name.', "warning");
             return;
           }
-          mapping[cwd] = sanitizedName;
+          mapping[cwd] = sanitized;
           writeVaultMapping(mapping);
           ctx.ui.notify(
-            `\u2713 Linked ${cwd} \u2192 vault "${sanitizedName}"
-  Memories in this directory will use vault "${sanitizedName}".
+            `\u2713 Linked ${cwd} \u2192 vault "${sanitized}"
+  Memories in this directory will use vault "${sanitized}".
   The vault will be created on first write.`,
             "info"
           );
@@ -854,9 +802,10 @@ function index_default(pi) {
           const removed = mapping[cwd];
           delete mapping[cwd];
           writeVaultMapping(mapping);
+          const fallback = isProject ? cwd.split("/").filter(Boolean).pop()?.toLowerCase() : "default";
           ctx.ui.notify(
             `\u2713 Unlinked ${cwd} from vault "${removed}".
-  This directory will now use vault "${isProject ? cwd.split("/").pop()?.toLowerCase() : "default"}".`,
+  This directory will now use vault "${fallback}".`,
             "info"
           );
           break;
@@ -869,15 +818,15 @@ function index_default(pi) {
             `Resolution: ${mapping[cwd] ? "explicit (vaults.json)" : isProject ? "auto-detected (project marker)" : "default (non-project dir)"}`
           ];
           if (isProject) {
-            lines.push(`Project markers: ${PROJECT_MARKERS.filter((m) => __require("node:fs").existsSync(__require("node:path").join(cwd, m))).join(", ") || "none"}`);
+            const markers = PROJECT_MARKERS.filter((m) => existsSync3(join3(cwd, m)));
+            if (markers.length > 0) lines.push(`Project markers: ${markers.join(", ")}`);
           }
-          const mappingCount = Object.keys(mapping).length;
-          if (mappingCount > 0) {
+          const entries = Object.entries(mapping);
+          if (entries.length > 0) {
             lines.push(`
-Linked vaults (${mappingCount}):`);
-            for (const [dir, vault] of Object.entries(mapping)) {
-              const marker = dir === cwd ? " \u2190 current" : "";
-              lines.push(`  ${vault.padEnd(20)} ${dir}${marker}`);
+Linked vaults (${entries.length}):`);
+            for (const [dir, vault] of entries) {
+              lines.push(`  ${vault.padEnd(20)} ${dir}${dir === cwd ? " \u2190 current" : ""}`);
             }
           }
           ctx.ui.notify(lines.join("\n"), "info");

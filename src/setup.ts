@@ -24,6 +24,10 @@ import { homedir, platform, arch, tmpdir } from "node:os";
 import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
+// Pi extension context (subset of ExtensionCommandContext)
+interface NotifyFn { (message: string, type?: "info" | "warning" | "error"): void }
+interface ExtensionContext { ui: { notify: NotifyFn } }
+
 // ─── Paths ────────────────────────────────────────────────────────
 const HOME = homedir();
 const BIN_DIR = join(HOME, "bin");
@@ -155,7 +159,7 @@ function hasContainerRuntime(): "docker" | "podman" | null {
 }
 
 // ─── Setup Function ────────────────────────────────────────────────
-export async function setupMuninnDB(ctx: any): Promise<void> {
+export async function setupMuninnDB(ctx: ExtensionContext): Promise<void> {
   const log = (msg: string) => ctx.ui.notify(msg, "info");
   const warn = (msg: string) => ctx.ui.notify(msg, "warning");
   const error = (msg: string) => ctx.ui.notify(msg, "error");
@@ -424,7 +428,7 @@ async function installMuninnDB(
 }
 
 // ─── Uninstall ────────────────────────────────────────────────────
-export async function uninstallMuninnDB(ctx: any): Promise<void> {
+export async function uninstallMuninnDB(ctx: ExtensionContext): Promise<void> {
   const log = (msg: string) => ctx.ui.notify(msg, "info");
 
   log("╔═══ MuninnDB Uninstall ═══╗\n");
