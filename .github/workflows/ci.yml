@@ -30,12 +30,14 @@ jobs:
       - name: Build bundle
         run: npm run build
 
-      - name: Verify bundle exists and is non-trivial
+      - name: Verify bundles exist and are non-trivial
         run: |
-          test -f dist/index.mjs || (echo "❌ Bundle not found" && exit 1)
-          SIZE=$(wc -c < dist/index.mjs)
-          [ "$SIZE" -gt 5000 ] || (echo "❌ Bundle too small: $SIZE bytes" && exit 1)
-          echo "✅ Bundle OK: $SIZE bytes"
+          for f in dist/index.mjs dist/muninn-dream.mjs; do
+            test -f "$f" || (echo "❌ Bundle not found: $f" && exit 1)
+            SIZE=$(wc -c < "$f")
+            [ "$SIZE" -gt 5000 ] || (echo "❌ Bundle too small ($f): $SIZE bytes" && exit 1)
+            echo "✅ Bundle OK ($f): $SIZE bytes"
+          done
 
       - name: Security audit
         run: npm audit --audit-level=high || true

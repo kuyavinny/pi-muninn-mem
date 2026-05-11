@@ -12,15 +12,20 @@
   ],
   "type": "module",
   "main": "dist/index.mjs",
+  "bin": {
+    "muninn-dream": "dist/muninn-dream.mjs"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
     ]
   },
   "scripts": {
-    "build": "npx esbuild index.ts --bundle --format=esm --platform=node --outfile=dist/index.mjs --external:@earendil-works/pi-coding-agent",
+    "build:extension": "npx esbuild index.ts --bundle --format=esm --platform=node --outfile=dist/index.mjs --external:@earendil-works/pi-coding-agent",
+    "build:dream": "npx esbuild src/dream.ts --bundle --format=esm --platform=node --outfile=dist/muninn-dream.mjs --banner:js='#!/usr/bin/env node'",
+    "build": "npm run build:extension && npm run build:dream",
     "prepublishOnly": "npm run build",
-    "check": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck --strict index.ts"
+    "check": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {},
   "peerDependencies": {

@@ -313,7 +313,7 @@ async function installMuninnDB(
       mkdirSync(BIN_DIR, { recursive: true });
 
       // Download to a temp directory (avoids symlink race conditions)
-      const tmpDir = mkdirSync(join(tmpdir(), "muninn-setup-"), { recursive: true });
+      const tmpDir = mkdirSync(join(tmpdir(), "muninn-setup-"), { recursive: true }) ?? tmpdir();
       const tmpFile = join(tmpDir, "muninn-download");
 
       // Use Node.js fetch instead of curl (no shell interpolation)

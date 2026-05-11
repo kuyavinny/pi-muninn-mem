@@ -205,7 +205,7 @@ function registerVaultInjection(pi) {
   pi.on("before_agent_start", async () => {
     individualRememberCount = 0;
   });
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, _ctx) => {
     if (!MUNINN_TOOLS.has(event.toolName)) return;
     if (!event.input) return;
     const input = event.input;
@@ -495,7 +495,7 @@ async function installMuninnDB(log, warn, error) {
     log(`  Downloading MuninnDB ${MUNINN_VERSION} for ${platInfo.platformKey}...`);
     try {
       mkdirSync2(BIN_DIR, { recursive: true });
-      const tmpDir = mkdirSync2(join2(tmpdir(), "muninn-setup-"), { recursive: true });
+      const tmpDir = mkdirSync2(join2(tmpdir(), "muninn-setup-"), { recursive: true }) ?? tmpdir();
       const tmpFile = join2(tmpDir, "muninn-download");
       const response = await fetch(platInfo.url);
       if (!response.ok) {
@@ -764,6 +764,7 @@ function removeMuninnSection(content) {
 // index.ts
 import { existsSync as existsSync3 } from "node:fs";
 import { join as join3 } from "node:path";
+import { fileURLToPath } from "node:url";
 function index_default(pi) {
   registerLifecycleHooks(pi);
   registerVaultInjection(pi);
@@ -848,28 +849,19 @@ Linked vaults (${entries.length}):`);
     }
   });
   pi.registerCommand("muninn-dream", {
-    description: "Run dream protocol: consolidate, evolve, and enrich memories",
+    description: "Run dream protocol: synthesize and write durable memories",
     handler: async (_args, ctx) => {
       const vault = resolveVaultName(process.cwd());
+      const dreamBin = fileURLToPath(new URL("./dist/muninn-dream.mjs", import.meta.url));
+      ctx.ui.notify(`\u{1F9E0} Running muninn-dream (vault: "${vault}")`, "info");
+      await ctx.waitForIdle();
+      const result = await pi.exec(process.execPath, [dreamBin, "--vault", vault], {
+        cwd: process.cwd()
+      });
+      const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
       ctx.ui.notify(
-        `\u{1F9E0} MuninnDB Dream Protocol (vault: "${vault}")
-
-Run these MCP tools in sequence:
-
-1. muninndb_muninn_contradictions \u2014 Find unresolved contradictions
-   \u2192 For each contradiction: use muninndb_muninn_evolve to update the older memory, or muninndb_muninn_consolidate to merge them
-
-2. muninndb_muninn_recall(mode=recent, limit=20) \u2014 Review recent memories
-   \u2192 Identify overlapping or duplicate memories \u2192 muninndb_muninn_consolidate
-   \u2192 Identify outdated memories \u2192 muninndb_muninn_evolve
-
-3. muninndb_muninn_get_enrichment_candidates(stages=[summary,entities]) \u2014 Find memories missing summaries or entities
-   \u2192 Use muninndb_muninn_apply_enrichment to add missing summaries and entities
-
-4. muninndb_muninn_decide \u2014 Record any decisions made during this session
-
-5. muninndb_muninn_where_left_off \u2014 Save final session state for next time`,
-        "info"
+        result.code === 0 ? output || "muninn-dream completed" : output || `muninn-dream exited with code ${result.code}`,
+        result.code === 0 ? "info" : "warning"
       );
     }
   });
