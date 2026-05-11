@@ -4,6 +4,7 @@ import { setupMuninnDB, uninstallMuninnDB } from "./src/setup";
 import { resolveVaultName, readVaultMapping, writeVaultMapping, isProjectDirectory, PROJECT_MARKERS } from "./src/vault";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -114,23 +115,24 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("muninn-dream", {
-    description: "Run dream protocol: consolidate, evolve, and enrich memories",
+    description: "Run dream protocol: synthesize and write durable memories",
     handler: async (_args, ctx) => {
       const vault = resolveVaultName(process.cwd());
+      const dreamBin = fileURLToPath(new URL("./dist/muninn-dream.mjs", import.meta.url));
 
+      ctx.ui.notify(`🧠 Running muninn-dream (vault: "${vault}")`, "info");
+      await ctx.waitForIdle();
+
+      const result = await pi.exec(process.execPath, [dreamBin, "--vault", vault], {
+        cwd: process.cwd(),
+      });
+
+      const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
       ctx.ui.notify(
-        `🧠 MuninnDB Dream Protocol (vault: "${vault}")\n\n` +
-        `Run these MCP tools in sequence:\n\n` +
-        `1. muninndb_muninn_contradictions — Find unresolved contradictions\n` +
-        `   → For each contradiction: use muninndb_muninn_evolve to update the older memory, or muninndb_muninn_consolidate to merge them\n\n` +
-        `2. muninndb_muninn_recall(mode=recent, limit=20) — Review recent memories\n` +
-        `   → Identify overlapping or duplicate memories → muninndb_muninn_consolidate\n` +
-        `   → Identify outdated memories → muninndb_muninn_evolve\n\n` +
-        `3. muninndb_muninn_get_enrichment_candidates(stages=[summary,entities]) — Find memories missing summaries or entities\n` +
-        `   → Use muninndb_muninn_apply_enrichment to add missing summaries and entities\n\n` +
-        `4. muninndb_muninn_decide — Record any decisions made during this session\n\n` +
-        `5. muninndb_muninn_where_left_off — Save final session state for next time`,
-        "info",
+        result.code === 0
+          ? (output || "muninn-dream completed")
+          : (output || `muninn-dream exited with code ${result.code}`),
+        result.code === 0 ? "info" : "warning",
       );
     },
   });

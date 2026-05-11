@@ -49,7 +49,7 @@ export function registerVaultInjection(pi: ExtensionAPI): void {
     individualRememberCount = 0;
   });
 
-  pi.on("tool_call", async (event) => {
+  (pi as any).on("tool_call", async (event: any, _ctx: any) => {
     // Only intercept known MuninnDB MCP tools (allowlist, not prefix match)
     if (!MUNINN_TOOLS.has(event.toolName)) return;
     if (!event.input) return;
