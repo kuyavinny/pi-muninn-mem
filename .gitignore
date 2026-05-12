@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-tests/
+.eslintcache
 *.d.ts
 .DS_Store
 *.log

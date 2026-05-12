@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -25,22 +25,31 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: npx tsc --noEmit --project tsconfig.json || true
+        run: npm run check
+
+      - name: Lint and format check
+        run: |
+          npm run lint
+          npm run format:check
+
+      - name: Run tests
+        run: npm test
 
       - name: Build bundle
         run: npm run build
 
-      - name: Verify bundles exist and are non-trivial
+      - name: Verify bundles exist, are non-trivial, and syntactically valid
         run: |
           for f in dist/index.mjs dist/muninn-dream.mjs; do
             test -f "$f" || (echo "❌ Bundle not found: $f" && exit 1)
             SIZE=$(wc -c < "$f")
             [ "$SIZE" -gt 5000 ] || (echo "❌ Bundle too small ($f): $SIZE bytes" && exit 1)
+            node --check "$f" || (echo "❌ Bundle has syntax errors: $f" && exit 1)
             echo "✅ Bundle OK ($f): $SIZE bytes"
           done
 
       - name: Security audit
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
         continue-on-error: true
 
       - name: Verify no binaries in package

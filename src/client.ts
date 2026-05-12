@@ -58,11 +58,13 @@ export class MuninnClient {
             if (line.startsWith("data: ")) {
               try {
                 yield JSON.parse(line.slice(6));
-              } catch { /* skip malformed SSE data */ }
+              } catch {
+                /* skip malformed SSE data */
+              }
             }
           }
         }
-      } catch (err) {
+      } catch {
         if (signal?.aborted) break;
         const retryDelay = Math.min(5000 * Math.pow(2, reconnectAttempts), 300000);
         reconnectAttempts++;

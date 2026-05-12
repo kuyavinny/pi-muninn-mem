@@ -17,15 +17,20 @@ import { join } from "node:path";
 export const DEFAULT_VAULT = "default";
 export const MUNINN_REST_URL = "http://127.0.0.1:8475";
 export const PROJECT_MARKERS = [
-  ".git", "package.json", "Cargo.toml", "go.mod", "pom.xml",
-  "build.gradle", "pyproject.toml", "requirements.txt",
-  "Makefile", "docker-compose.yml", "docker-compose.yaml",
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+  "pyproject.toml",
+  "requirements.txt",
+  "Makefile",
+  "docker-compose.yml",
+  "docker-compose.yaml",
 ];
 
 // ─── Vault mapping ───────────────────────────────────────────────────
-
-const HOME = homedir();
-const VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
 
 export interface VaultMapping {
   [directoryPath: string]: string;
@@ -34,8 +39,9 @@ export interface VaultMapping {
 /** Read the vault mapping file. Returns empty object if not found. */
 export function readVaultMapping(): VaultMapping {
   try {
-    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
-    return JSON.parse(readFileSync(VAULTS_CONFIG_PATH, "utf-8"));
+    const path = join(homedir(), ".muninn", "vaults.json");
+    if (!existsSync(path)) return {};
+    return JSON.parse(readFileSync(path, "utf-8"));
   } catch {
     return {};
   }
@@ -43,10 +49,12 @@ export function readVaultMapping(): VaultMapping {
 
 /** Write the vault mapping file atomically. Creates ~/.muninn/ if needed. */
 export function writeVaultMapping(mapping: VaultMapping): void {
-  mkdirSync(join(HOME, ".muninn"), { recursive: true });
-  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = join(homedir(), ".muninn");
+  const path = join(dir, "vaults.json");
+  mkdirSync(dir, { recursive: true });
+  const tmpFile = join(dir, `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
-  renameSync(tmpFile, VAULTS_CONFIG_PATH);
+  renameSync(tmpFile, path);
 }
 
 /** Check if a directory contains project markers. */
@@ -66,14 +74,20 @@ export function isProjectDirectory(dir: string): boolean {
 export function resolveVaultName(cwd?: string): string {
   const dir = cwd || process.cwd() || "/";
 
-  if (dir === HOME || dir === "/") return DEFAULT_VAULT;
+  if (dir === homedir() || dir === "/") return DEFAULT_VAULT;
 
   const mapping = readVaultMapping();
   if (mapping[dir]) return mapping[dir];
 
   if (isProjectDirectory(dir)) {
     const base = dir.split("/").filter(Boolean).pop() || DEFAULT_VAULT;
-    return base.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64) || DEFAULT_VAULT;
+    return (
+      base
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .substring(0, 64) || DEFAULT_VAULT
+    );
   }
 
   return DEFAULT_VAULT;
