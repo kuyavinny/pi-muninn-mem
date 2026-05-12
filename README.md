@@ -93,6 +93,36 @@ Plus 30 more — see `muninndb_muninn_guide` for the full list.
 
 All LLM operations go through MCP. The extension only provides SSE subscription (which MCP cannot do), context injection, and setup automation.
 
+## Development
+
+| Script       | Command                |
+| ------------ | ---------------------- |
+| Type check   | `npm run check`        |
+| Lint         | `npm run lint`         |
+| Fix lint     | `npm run lint:fix`     |
+| Format       | `npm run format`       |
+| Check format | `npm run format:check` |
+| Test         | `npm test`             |
+| Build        | `npm run build`        |
+
+All 27 tests run via Node's built-in test runner (`node:test`) with `tsx` for TypeScript execution. No external test framework is required.
+
+### Standalone CLI
+
+This package also ships a standalone `muninn-dream` CLI for session replay and memory synthesis:
+
+```bash
+npx @kuyavinny/pi-muninn-mem -- --vault=my-project --dry-run
+```
+
+Or after global install:
+
+```bash
+muninn-dream --vault=my-project --session-file=session.jsonl --extract-only
+```
+
+See `docs/muninn-dream-design.md` for the full design.
+
 ## Embedding Configuration
 
 MuninnDB ships with a **bundled ONNX embedder** (all-MiniLM-L6-v2, 384-dim) that works offline with zero configuration. This is the default.
