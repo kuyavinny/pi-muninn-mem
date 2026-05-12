@@ -11,6 +11,7 @@ The goal is not transcript copying. The goal is to capture durable specifics: us
 Muninn-dream should preserve stable meaning, not literal detail.
 
 Good candidates:
+
 - recurring user routines or preferences
 - project/repo facts and architecture choices
 - technologies, dependencies, runtime constraints
@@ -21,6 +22,7 @@ Good candidates:
 If the evidence only supports a one-off detail, either generalize it into the stable pattern or return `[]`.
 
 Bad candidates:
+
 - raw transcript copies
 - exact appointment times or grocery lists
 - placeholder text
@@ -55,6 +57,7 @@ The Pi slash command `/muninn-dream` should invoke the bundled CLI binary from t
 ## MuninnDB Compatibility
 
 The written memories should be useful to MuninnDB enrichment:
+
 - name stable entities clearly
 - keep each memory atomic
 - prefer facts/decisions/observations over raw lists
@@ -65,6 +68,7 @@ The written memories should be useful to MuninnDB enrichment:
 A successful dry run can still yield zero writes if the evidence is weak. That is a valid result.
 
 A useful dry run should also show:
+
 - raw synthesis output
 - parsed actions
 - validation rejections

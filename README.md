@@ -36,35 +36,35 @@ If MuninnDB isn't running when Pi starts, you'll see:
 
 ### Extension (what this package provides)
 
-| Hook | What it does |
-|------|-------------|
-| `session_start` | Health-check MuninnDB, start SSE subscription, notify user |
-| `before_agent_start` | On first turn: tell LLM to call `muninndb_muninn_where_left_off` |
-| `context` | Push contradiction alerts and relevant memory updates via SSE |
-| `session_shutdown` | Clean up SSE connection |
-| `/muninn-setup` | Install MuninnDB, configure MCP + AGENTS.md |
-| `/muninn-remove` | Unregister extension, remove MCP config, clean AGENTS.md |
-| `/muninn-vault status` | Show current vault and mapping |
-| `/muninn-vault create [name]` | Link current directory to a vault |
-| `/muninn-vault unlink` | Remove vault mapping for current directory |
-| `/muninn-dream` | Run dream protocol: consolidate, evolve, enrich memories |
-| `tool_call` | Auto-inject `vault` parameter into MuninnDB MCP tool calls |
+| Hook                          | What it does                                                     |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `session_start`               | Health-check MuninnDB, start SSE subscription, notify user       |
+| `before_agent_start`          | On first turn: tell LLM to call `muninndb_muninn_where_left_off` |
+| `context`                     | Push contradiction alerts and relevant memory updates via SSE    |
+| `session_shutdown`            | Clean up SSE connection                                          |
+| `/muninn-setup`               | Install MuninnDB, configure MCP + AGENTS.md                      |
+| `/muninn-remove`              | Unregister extension, remove MCP config, clean AGENTS.md         |
+| `/muninn-vault status`        | Show current vault and mapping                                   |
+| `/muninn-vault create [name]` | Link current directory to a vault                                |
+| `/muninn-vault unlink`        | Remove vault mapping for current directory                       |
+| `/muninn-dream`               | Run dream protocol: consolidate, evolve, enrich memories         |
+| `tool_call`                   | Auto-inject `vault` parameter into MuninnDB MCP tool calls       |
 
 ### MCP tools (provided by MuninnDB via pi-mcp-adapter)
 
 The LLM calls these directly through the `mcp` gateway:
 
-| Tool | Purpose |
-|------|---------|
+| Tool                             | Purpose                                                 |
+| -------------------------------- | ------------------------------------------------------- |
 | `muninndb_muninn_where_left_off` | Restore context from last session — **call this first** |
-| `muninndb_muninn_recall` | Semantic search for relevant memories |
-| `muninndb_muninn_remember` | Store a fact, decision, preference, or observation |
-| `muninndb_muninn_decide` | Record a decision with rationale and evidence |
-| `muninndb_muninn_remember_batch` | Store multiple memories at once (max 50) |
-| `muninndb_muninn_evolve` | Update a memory with new information |
-| `muninndb_muninn_consolidate` | Merge related memories |
-| `muninndb_muninn_contradictions` | Check for known contradictions |
-| `muninndb_muninn_guide` | Get vault-specific usage instructions |
+| `muninndb_muninn_recall`         | Semantic search for relevant memories                   |
+| `muninndb_muninn_remember`       | Store a fact, decision, preference, or observation      |
+| `muninndb_muninn_decide`         | Record a decision with rationale and evidence           |
+| `muninndb_muninn_remember_batch` | Store multiple memories at once (max 50)                |
+| `muninndb_muninn_evolve`         | Update a memory with new information                    |
+| `muninndb_muninn_consolidate`    | Merge related memories                                  |
+| `muninndb_muninn_contradictions` | Check for known contradictions                          |
+| `muninndb_muninn_guide`          | Get vault-specific usage instructions                   |
 
 Plus 30 more — see `muninndb_muninn_guide` for the full list.
 
@@ -99,12 +99,12 @@ MuninnDB ships with a **bundled ONNX embedder** (all-MiniLM-L6-v2, 384-dim) that
 
 For better embeddings, edit `~/.muninn/muninn.env` and restart MuninnDB:
 
-| Provider | Config | Quality |
-|----------|--------|---------|
-| **Ollama** (recommended) | `MUNINN_OLLAMA_URL=ollama://localhost:11434/nomic-embed-text` | 768-dim, free, local |
-| LM Studio | `MUNINN_OPENAI_URL=http://localhost:1234/v1` | Any model |
-| OpenAI | `MUNINN_OPENAI_KEY=sk-...` | text-embedding-3-small |
-| Voyage AI | `MUNINN_VOYAGE_KEY=pa-...` | voyage-3 |
+| Provider                 | Config                                                        | Quality                |
+| ------------------------ | ------------------------------------------------------------- | ---------------------- |
+| **Ollama** (recommended) | `MUNINN_OLLAMA_URL=ollama://localhost:11434/nomic-embed-text` | 768-dim, free, local   |
+| LM Studio                | `MUNINN_OPENAI_URL=http://localhost:1234/v1`                  | Any model              |
+| OpenAI                   | `MUNINN_OPENAI_KEY=sk-...`                                    | text-embedding-3-small |
+| Voyage AI                | `MUNINN_VOYAGE_KEY=pa-...`                                    | voyage-3               |
 
 For **enrichment** (summaries, entities, contradiction detection):
 
@@ -158,12 +158,12 @@ docker run -d --name muninndb \
 
 ## Configuration Files
 
-| File | Purpose |
-|------|---------|
-| `~/.config/mcp/mcp.json` | MCP server URL for MuninnDB |
-| `~/.pi/agent/AGENTS.md` | LLM instructions for MuninnDB (non-destructive) |
-| `~/.muninn/muninn.env` | MuninnDB embedder/enricher settings |
-| `~/.muninn/data/` | MuninnDB data (Pebble DB) |
+| File                     | Purpose                                         |
+| ------------------------ | ----------------------------------------------- |
+| `~/.config/mcp/mcp.json` | MCP server URL for MuninnDB                     |
+| `~/.pi/agent/AGENTS.md`  | LLM instructions for MuninnDB (non-destructive) |
+| `~/.muninn/muninn.env`   | MuninnDB embedder/enricher settings             |
+| `~/.muninn/data/`        | MuninnDB data (Pebble DB)                       |
 
 ## License
 

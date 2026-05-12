@@ -17,28 +17,29 @@ var PROJECT_MARKERS = [
   "docker-compose.yml",
   "docker-compose.yaml"
 ];
-var HOME = homedir();
-var VAULTS_CONFIG_PATH = join(HOME, ".muninn", "vaults.json");
 function readVaultMapping() {
   try {
-    if (!existsSync(VAULTS_CONFIG_PATH)) return {};
-    return JSON.parse(readFileSync(VAULTS_CONFIG_PATH, "utf-8"));
+    const path = join(homedir(), ".muninn", "vaults.json");
+    if (!existsSync(path)) return {};
+    return JSON.parse(readFileSync(path, "utf-8"));
   } catch {
     return {};
   }
 }
 function writeVaultMapping(mapping) {
-  mkdirSync(join(HOME, ".muninn"), { recursive: true });
-  const tmpFile = join(HOME, ".muninn", `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = join(homedir(), ".muninn");
+  const path = join(dir, "vaults.json");
+  mkdirSync(dir, { recursive: true });
+  const tmpFile = join(dir, `.vaults-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   writeFileSync(tmpFile, JSON.stringify(mapping, null, 2) + "\n");
-  renameSync(tmpFile, VAULTS_CONFIG_PATH);
+  renameSync(tmpFile, path);
 }
 function isProjectDirectory(dir) {
   return PROJECT_MARKERS.some((marker) => existsSync(join(dir, marker)));
 }
 function resolveVaultName(cwd) {
   const dir = cwd || process.cwd() || "/";
-  if (dir === HOME || dir === "/") return DEFAULT_VAULT;
+  if (dir === homedir() || dir === "/") return DEFAULT_VAULT;
   const mapping = readVaultMapping();
   if (mapping[dir]) return mapping[dir];
   if (isProjectDirectory(dir)) {
@@ -98,7 +99,7 @@ var MuninnClient = class {
             }
           }
         }
-      } catch (err) {
+      } catch {
         if (signal?.aborted) break;
         const retryDelay = Math.min(5e3 * Math.pow(2, reconnectAttempts), 3e5);
         reconnectAttempts++;
@@ -240,18 +241,18 @@ import {
   rmSync,
   renameSync as renameSync2,
   accessSync,
-  constants
+  constants,
+  mkdtempSync
 } from "node:fs";
 import { join as join2 } from "node:path";
 import { homedir as homedir2, platform, arch, tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-var HOME2 = homedir2();
-var BIN_DIR = join2(HOME2, "bin");
-var MCP_CONFIG_PATH = join2(HOME2, ".config/mcp/mcp.json");
-var AGENTS_MD_PATH = join2(HOME2, ".pi/agent/AGENTS.md");
-var SETTINGS_PATH = join2(HOME2, ".pi/agent/settings.json");
-var MUNINN_DATA_DIR = join2(HOME2, ".muninn/data");
+var HOME = homedir2();
+var BIN_DIR = join2(HOME, "bin");
+var MCP_CONFIG_PATH = join2(HOME, ".config/mcp/mcp.json");
+var AGENTS_MD_PATH = join2(HOME, ".pi/agent/AGENTS.md");
+var SETTINGS_PATH = join2(HOME, ".pi/agent/settings.json");
 var MUNINN_VERSION = "v0.5.1";
 var MUNINN_RELEASES = "https://github.com/scrypster/muninndb/releases/download";
 var MUNINN_DOCKER_IMAGE = "ghcr.io/scrypster/muninndb:v0.5.1";
@@ -495,22 +496,18 @@ async function installMuninnDB(log, warn, error) {
     log(`  Downloading MuninnDB ${MUNINN_VERSION} for ${platInfo.platformKey}...`);
     try {
       mkdirSync2(BIN_DIR, { recursive: true });
-      const tmpDir = mkdirSync2(join2(tmpdir(), "muninn-setup-"), { recursive: true }) ?? tmpdir();
+      const tmpDir = mkdtempSync(join2(tmpdir(), "muninn-setup-"));
       const tmpFile = join2(tmpDir, "muninn-download");
       const response = await fetch(platInfo.url);
       if (!response.ok) {
         throw new Error(`Download failed: HTTP ${response.status}`);
       }
       const buffer = Buffer.from(await response.arrayBuffer());
-      const actualHash = createHash("sha256").update(buffer).digest("hex");
-      if (actualHash !== platInfo.hash) {
+      try {
+        verifyChecksum(buffer, platInfo.hash);
+      } catch (e) {
         rmSync(tmpDir, { recursive: true });
-        throw new Error(
-          `Integrity check failed!
-  Expected: ${platInfo.hash}
-  Got:      ${actualHash}
-  This binary may have been tampered with. Aborting.`
-        );
+        throw e;
       }
       writeFileSync2(tmpFile, buffer);
       chmodSync(tmpFile, 488);
@@ -557,25 +554,29 @@ async function installMuninnDB(log, warn, error) {
         execFileSync(runtime, ["rm", containerName], { stdio: "pipe" });
       } catch {
       }
-      execFileSync(runtime, [
-        "run",
-        "-d",
-        "--name",
-        containerName,
-        "-p",
-        "127.0.0.1:8474:8474",
-        "-p",
-        "127.0.0.1:8475:8475",
-        "-p",
-        "127.0.0.1:8476:8476",
-        "-p",
-        "127.0.0.1:8477:8477",
-        "-p",
-        "127.0.0.1:8750:8750",
-        "-v",
-        "muninndb-data:/data",
-        MUNINN_DOCKER_IMAGE
-      ], { stdio: "pipe", timeout: 3e5 });
+      execFileSync(
+        runtime,
+        [
+          "run",
+          "-d",
+          "--name",
+          containerName,
+          "-p",
+          "127.0.0.1:8474:8474",
+          "-p",
+          "127.0.0.1:8475:8475",
+          "-p",
+          "127.0.0.1:8476:8476",
+          "-p",
+          "127.0.0.1:8477:8477",
+          "-p",
+          "127.0.0.1:8750:8750",
+          "-v",
+          "muninndb-data:/data",
+          MUNINN_DOCKER_IMAGE
+        ],
+        { stdio: "pipe", timeout: 3e5 }
+      );
       log(`  \u2713 Container started with ${runtime} (localhost only)`);
       for (let i = 0; i < 30; i++) {
         if (await checkHealth(8475)) {
@@ -598,8 +599,12 @@ async function installMuninnDB(log, warn, error) {
   }
   log("\n  Manual install options:");
   log("    Binary:  https://github.com/scrypster/muninndb/releases");
-  log("    Docker:  docker run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1");
-  log("    Podman:  podman run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1\n");
+  log(
+    "    Docker:  docker run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1"
+  );
+  log(
+    "    Podman:  podman run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1\n"
+  );
   return false;
 }
 async function uninstallMuninnDB(ctx) {
@@ -659,6 +664,17 @@ function atomicWriteFile(filePath, content) {
   const tmpFile = join2(dir, `.muninn-cfg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   writeFileSync2(tmpFile, content);
   renameSync2(tmpFile, filePath);
+}
+function verifyChecksum(buffer, expectedHash) {
+  const actualHash = createHash("sha256").update(buffer).digest("hex");
+  if (actualHash !== expectedHash) {
+    throw new Error(
+      `Integrity check failed!
+  Expected: ${expectedHash}
+  Got:      ${actualHash}
+  This binary may have been tampered with. Aborting.`
+    );
+  }
 }
 function validateMcpUrl(url) {
   try {

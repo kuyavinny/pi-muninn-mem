@@ -47,6 +47,7 @@ Options:
 ## Validation Rules
 
 The validator should reject:
+
 - raw prompt copies
 - placeholder concepts or content
 - obvious self-referential boilerplate
