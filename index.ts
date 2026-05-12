@@ -1,7 +1,13 @@
 import registerLifecycleHooks from "./src/extension";
 import { registerVaultInjection } from "./src/mcp-bridge";
 import { setupMuninnDB, uninstallMuninnDB } from "./src/setup";
-import { resolveVaultName, readVaultMapping, writeVaultMapping, isProjectDirectory, PROJECT_MARKERS } from "./src/vault";
+import {
+  resolveVaultName,
+  readVaultMapping,
+  writeVaultMapping,
+  isProjectDirectory,
+  PROJECT_MARKERS,
+} from "./src/vault";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,7 +54,11 @@ export default function (pi: ExtensionAPI) {
       switch (subcommand) {
         case "create": {
           const vaultName = name || cwd.split("/").filter(Boolean).pop() || "default";
-          const sanitized = vaultName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").substring(0, 64);
+          const sanitized = vaultName
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .substring(0, 64);
 
           if (!sanitized || sanitized === "default") {
             ctx.ui.notify('Cannot create a vault named "default". Choose a project-specific name.', "warning");
@@ -60,8 +70,8 @@ export default function (pi: ExtensionAPI) {
 
           ctx.ui.notify(
             `✓ Linked ${cwd} → vault "${sanitized}"\n` +
-            `  Memories in this directory will use vault "${sanitized}".\n` +
-            `  The vault will be created on first write.`,
+              `  Memories in this directory will use vault "${sanitized}".\n` +
+              `  The vault will be created on first write.`,
             "info",
           );
           break;
@@ -79,8 +89,7 @@ export default function (pi: ExtensionAPI) {
 
           const fallback = isProject ? cwd.split("/").filter(Boolean).pop()?.toLowerCase() : "default";
           ctx.ui.notify(
-            `✓ Unlinked ${cwd} from vault "${removed}".\n` +
-            `  This directory will now use vault "${fallback}".`,
+            `✓ Unlinked ${cwd} from vault "${removed}".\n` + `  This directory will now use vault "${fallback}".`,
             "info",
           );
           break;
@@ -130,8 +139,8 @@ export default function (pi: ExtensionAPI) {
       const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
       ctx.ui.notify(
         result.code === 0
-          ? (output || "muninn-dream completed")
-          : (output || `muninn-dream exited with code ${result.code}`),
+          ? output || "muninn-dream completed"
+          : output || `muninn-dream exited with code ${result.code}`,
         result.code === 0 ? "info" : "warning",
       );
     },

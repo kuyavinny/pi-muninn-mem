@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MuninnClient } from "./client";
-import { resolveVaultName, isProjectDirectory, readVaultMapping, writeVaultMapping, MUNINN_REST_URL, PROJECT_MARKERS } from "./vault";
+import { resolveVaultName, MUNINN_REST_URL } from "./vault";
 import type { ActivationPush } from "./vault";
 
 // ─── Shared client singleton ──────────────────────────────────────────
@@ -19,7 +19,9 @@ function startSSESubscription(vault: string, signal: AbortSignal, onPush: (push:
           onPush(push);
         }
       }
-    } catch { /* subscription ended */ }
+    } catch {
+      /* subscription ended */
+    }
   })();
 }
 

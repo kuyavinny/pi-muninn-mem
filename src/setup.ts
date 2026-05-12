@@ -16,17 +16,29 @@
  */
 
 import {
-  readFileSync, writeFileSync, mkdirSync, existsSync,
-  chmodSync, rmSync, renameSync, accessSync, constants,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  chmodSync,
+  rmSync,
+  renameSync,
+  accessSync,
+  constants,
+  mkdtempSync,
 } from "node:fs";
 import { join } from "node:path";
 import { homedir, platform, arch, tmpdir } from "node:os";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 // Pi extension context (subset of ExtensionCommandContext)
-interface NotifyFn { (message: string, type?: "info" | "warning" | "error"): void }
-interface ExtensionContext { ui: { notify: NotifyFn } }
+interface NotifyFn {
+  (message: string, type?: "info" | "warning" | "error"): void;
+}
+interface ExtensionContext {
+  ui: { notify: NotifyFn };
+}
 
 // ─── Paths ────────────────────────────────────────────────────────
 const HOME = homedir();
@@ -34,8 +46,6 @@ const BIN_DIR = join(HOME, "bin");
 const MCP_CONFIG_PATH = join(HOME, ".config/mcp/mcp.json");
 const AGENTS_MD_PATH = join(HOME, ".pi/agent/AGENTS.md");
 const SETTINGS_PATH = join(HOME, ".pi/agent/settings.json");
-const MUNINN_DATA_DIR = join(HOME, ".muninn/data");
-
 // ─── MuninnDB release info (pinned version + checksums) ───────────
 const MUNINN_VERSION = "v0.5.1";
 const MUNINN_RELEASES = "https://github.com/scrypster/muninndb/releases/download";
@@ -142,15 +152,25 @@ function getPlatformBinary(): { url: string; dest: string; hash: string; platfor
   let binaryName: string;
 
   if (p === "linux" && a === "x64") {
-    osName = "linux"; osArch = "amd64"; binaryName = "muninn";
+    osName = "linux";
+    osArch = "amd64";
+    binaryName = "muninn";
   } else if (p === "linux" && a === "arm64") {
-    osName = "linux"; osArch = "arm64"; binaryName = "muninn";
+    osName = "linux";
+    osArch = "arm64";
+    binaryName = "muninn";
   } else if (p === "darwin" && a === "x64") {
-    osName = "darwin"; osArch = "amd64"; binaryName = "muninn";
+    osName = "darwin";
+    osArch = "amd64";
+    binaryName = "muninn";
   } else if (p === "darwin" && (a === "arm64" || a === "arm")) {
-    osName = "darwin"; osArch = "arm64"; binaryName = "muninn";
+    osName = "darwin";
+    osArch = "arm64";
+    binaryName = "muninn";
   } else if (p === "win32" && a === "x64") {
-    osName = "windows"; osArch = "amd64"; binaryName = "muninn.exe";
+    osName = "windows";
+    osArch = "amd64";
+    binaryName = "muninn.exe";
   } else {
     return null;
   }
@@ -165,8 +185,18 @@ function getPlatformBinary(): { url: string; dest: string; hash: string; platfor
 }
 
 function hasContainerRuntime(): "docker" | "podman" | null {
-  try { execFileSync("docker", ["--version"], { stdio: "pipe" }); return "docker"; } catch { /* */ }
-  try { execFileSync("podman", ["--version"], { stdio: "pipe" }); return "podman"; } catch { /* */ }
+  try {
+    execFileSync("docker", ["--version"], { stdio: "pipe" });
+    return "docker";
+  } catch {
+    /* */
+  }
+  try {
+    execFileSync("podman", ["--version"], { stdio: "pipe" });
+    return "podman";
+  } catch {
+    /* */
+  }
   return null;
 }
 
@@ -179,7 +209,7 @@ export async function setupMuninnDB(ctx: ExtensionContext): Promise<void> {
   log("╔═══ MuninnDB Setup ═══╗\n");
 
   // ─── Step 0: Check dependencies ─────────────────────────────────
-  if (!await checkMcpAdapter()) {
+  if (!(await checkMcpAdapter())) {
     error("pi-mcp-adapter is not installed.");
     log("  MuninnDB tools are exposed via MCP. Without pi-mcp-adapter, Pi cannot see them.");
     log("  Install it with:");
@@ -218,7 +248,9 @@ export async function setupMuninnDB(ctx: ExtensionContext): Promise<void> {
       log("  MuninnDB found but not running. Starting...");
       try {
         execFileSync(existingBin, ["start"], { timeout: 15000, stdio: "pipe" });
-      } catch { /* some versions print to stderr */ }
+      } catch {
+        /* some versions print to stderr */
+      }
       for (let i = 0; i < 15; i++) {
         if (await checkHealth(8475)) {
           muninnRunning = true;
@@ -313,7 +345,7 @@ async function installMuninnDB(
       mkdirSync(BIN_DIR, { recursive: true });
 
       // Download to a temp directory (avoids symlink race conditions)
-      const tmpDir = mkdirSync(join(tmpdir(), "muninn-setup-"), { recursive: true }) ?? tmpdir();
+      const tmpDir = mkdtempSync(join(tmpdir(), "muninn-setup-"));
       const tmpFile = join(tmpDir, "muninn-download");
 
       // Use Node.js fetch instead of curl (no shell interpolation)
@@ -324,13 +356,11 @@ async function installMuninnDB(
       const buffer = Buffer.from(await response.arrayBuffer());
 
       // Verify SHA-256 checksum before writing to disk
-      const actualHash = createHash("sha256").update(buffer).digest("hex");
-      if (actualHash !== platInfo.hash) {
+      try {
+        verifyChecksum(buffer, platInfo.hash);
+      } catch (e) {
         rmSync(tmpDir, { recursive: true });
-        throw new Error(
-          `Integrity check failed!\n  Expected: ${platInfo.hash}\n  Got:      ${actualHash}\n` +
-          "  This binary may have been tampered with. Aborting."
-        );
+        throw e;
       }
 
       writeFileSync(tmpFile, buffer);
@@ -350,7 +380,8 @@ async function installMuninnDB(
 
       try {
         execFileSync(platInfo.dest, ["init", "--tool", "manual", "--no-token", "--yes", "--yes"], {
-          stdio: "pipe", timeout: 30000,
+          stdio: "pipe",
+          timeout: 30000,
         });
         log("  ✓ MuninnDB initialized");
       } catch (e: any) {
@@ -361,7 +392,9 @@ async function installMuninnDB(
       log("  Starting MuninnDB...");
       try {
         execFileSync(platInfo.dest, ["start"], { stdio: "pipe", timeout: 15000 });
-      } catch { /* some versions print to stderr */ }
+      } catch {
+        /* some versions print to stderr */
+      }
 
       // Wait for health
       for (let i = 0; i < 20; i++) {
@@ -392,19 +425,34 @@ async function installMuninnDB(
       // Remove existing container if stopped
       try {
         execFileSync(runtime, ["rm", containerName], { stdio: "pipe" });
-      } catch { /* no existing container */ }
+      } catch {
+        /* no existing container */
+      }
 
       // Bind to localhost only (no network exposure)
-      execFileSync(runtime, [
-        "run", "-d", "--name", containerName,
-        "-p", "127.0.0.1:8474:8474",
-        "-p", "127.0.0.1:8475:8475",
-        "-p", "127.0.0.1:8476:8476",
-        "-p", "127.0.0.1:8477:8477",
-        "-p", "127.0.0.1:8750:8750",
-        "-v", "muninndb-data:/data",
-        MUNINN_DOCKER_IMAGE,
-      ], { stdio: "pipe", timeout: 300_000 });
+      execFileSync(
+        runtime,
+        [
+          "run",
+          "-d",
+          "--name",
+          containerName,
+          "-p",
+          "127.0.0.1:8474:8474",
+          "-p",
+          "127.0.0.1:8475:8475",
+          "-p",
+          "127.0.0.1:8476:8476",
+          "-p",
+          "127.0.0.1:8477:8477",
+          "-p",
+          "127.0.0.1:8750:8750",
+          "-v",
+          "muninndb-data:/data",
+          MUNINN_DOCKER_IMAGE,
+        ],
+        { stdio: "pipe", timeout: 300_000 },
+      );
 
       log(`  ✓ Container started with ${runtime} (localhost only)`);
 
@@ -434,8 +482,12 @@ async function installMuninnDB(
 
   log("\n  Manual install options:");
   log("    Binary:  https://github.com/scrypster/muninndb/releases");
-  log("    Docker:  docker run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1");
-  log("    Podman:  podman run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1\n");
+  log(
+    "    Docker:  docker run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1",
+  );
+  log(
+    "    Podman:  podman run -d --name muninndb -p 127.0.0.1:8474-8477:8474-8477 -p 127.0.0.1:8750:8750 -v muninndb-data:/data ghcr.io/scrypster/muninndb:v0.5.1\n",
+  );
   return false;
 }
 
@@ -451,7 +503,9 @@ export async function uninstallMuninnDB(ctx: ExtensionContext): Promise<void> {
     try {
       execFileSync(muninnBin, ["stop"], { timeout: 10000, stdio: "pipe" });
       log("  ✓ MuninnDB stopped");
-    } catch { /* not running */ }
+    } catch {
+      /* not running */
+    }
   }
 
   // Remove extension from settings.json
@@ -466,7 +520,9 @@ export async function uninstallMuninnDB(ctx: ExtensionContext): Promise<void> {
         log("  ✓ Removed from Pi settings");
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Remove muninndb from MCP config
   try {
@@ -478,7 +534,9 @@ export async function uninstallMuninnDB(ctx: ExtensionContext): Promise<void> {
         log("  ✓ Removed muninndb from MCP config");
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Remove MuninnDB section from AGENTS.md
   try {
@@ -490,7 +548,9 @@ export async function uninstallMuninnDB(ctx: ExtensionContext): Promise<void> {
         log("  ✓ Removed MuninnDB section from AGENTS.md");
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   log("\nRestart Pi to apply changes.");
   log("To remove MuninnDB data:  rm -rf ~/.muninn");
@@ -509,8 +569,18 @@ function atomicWriteFile(filePath: string, content: string): void {
   renameSync(tmpFile, filePath);
 }
 
+export function verifyChecksum(buffer: Buffer, expectedHash: string): void {
+  const actualHash = createHash("sha256").update(buffer).digest("hex");
+  if (actualHash !== expectedHash) {
+    throw new Error(
+      `Integrity check failed!\n  Expected: ${expectedHash}\n  Got:      ${actualHash}\n` +
+        "  This binary may have been tampered with. Aborting.",
+    );
+  }
+}
+
 /** Validate that an MCP URL points to localhost with a known port. */
-function validateMcpUrl(url: string): boolean {
+export function validateMcpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (!LOCALHOST_HOSTS.includes(parsed.hostname)) return false;
@@ -547,7 +617,9 @@ async function checkMcpAdapter(): Promise<boolean> {
       const pkgs: string[] = data.packages || [];
       return pkgs.some((p) => p.includes("pi-mcp-adapter"));
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return false;
 }
 
@@ -562,7 +634,9 @@ function findMuninnBinary(): string | null {
     try {
       accessSync(candidate, constants.X_OK);
       return candidate;
-    } catch { continue; }
+    } catch {
+      continue;
+    }
   }
   return null;
 }
@@ -580,7 +654,9 @@ async function writeMcpConfig(mcpUrl: string): Promise<void> {
   if (existsSync(MCP_CONFIG_PATH)) {
     try {
       config = JSON.parse(readFileSync(MCP_CONFIG_PATH, "utf-8"));
-    } catch { /* use empty config */ }
+    } catch {
+      /* use empty config */
+    }
   }
 
   if (!config.mcpServers) config.mcpServers = {};
@@ -608,7 +684,7 @@ async function writeAgentsMd(): Promise<void> {
   }
 }
 
-function removeMuninnSection(content: string): string {
+export function removeMuninnSection(content: string): string {
   const marker = "# Memory: MuninnDB";
   const start = content.indexOf(marker);
   if (start === -1) return content;
@@ -618,7 +694,5 @@ function removeMuninnSection(content: string): string {
     return content.substring(0, start).trimEnd();
   }
 
-  return (content.substring(0, start) + content.substring(afterStart))
-    .replace(/\n{3,}/g, "\n\n")
-    .trimEnd();
+  return (content.substring(0, start) + content.substring(afterStart)).replace(/\n{3,}/g, "\n\n").trimEnd();
 }

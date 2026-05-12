@@ -6,9 +6,7 @@ import { pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { DEFAULT_VAULT, MUNINN_REST_URL } from "./vault";
 
-type MaybeString = string | undefined;
-
-interface DreamOptions {
+export interface DreamOptions {
   vault: string;
   restUrl: string;
   sessionDir: string;
@@ -20,13 +18,29 @@ interface DreamOptions {
   verbose: boolean;
 }
 
-interface SessionUserMessage { turn: number; text: string }
-interface SessionAssistantMessage { turn: number; text: string }
-interface SessionThinkingBlock { turn: number; text: string }
-interface SessionMuninnCall { turn: number; tool: string; arguments: Record<string, unknown> }
-interface SessionCustomMessage { type: string; content: string }
+export interface SessionUserMessage {
+  turn: number;
+  text: string;
+}
+export interface SessionAssistantMessage {
+  turn: number;
+  text: string;
+}
+export interface SessionThinkingBlock {
+  turn: number;
+  text: string;
+}
+export interface SessionMuninnCall {
+  turn: number;
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+export interface SessionCustomMessage {
+  type: string;
+  content: string;
+}
 
-interface SessionSignal {
+export interface SessionSignal {
   sessionId: string;
   cwd: string;
   parentSession?: string | null;
@@ -41,11 +55,11 @@ interface SessionSignal {
   customMuninn: SessionCustomMessage[];
 }
 
-interface ActionBase {
+export interface ActionBase {
   action: string;
 }
 
-interface RememberAction extends ActionBase {
+export interface RememberAction extends ActionBase {
   action: "remember";
   concept: string;
   content: string;
@@ -56,7 +70,7 @@ interface RememberAction extends ActionBase {
   tags?: string[];
 }
 
-interface DecideAction extends ActionBase {
+export interface DecideAction extends ActionBase {
   action: "decide";
   decision: string;
   rationale: string;
@@ -66,7 +80,7 @@ interface DecideAction extends ActionBase {
   tags?: string[];
 }
 
-interface EvolveAction extends ActionBase {
+export interface EvolveAction extends ActionBase {
   action: "evolve";
   id: string;
   new_content: string;
@@ -76,11 +90,11 @@ interface EvolveAction extends ActionBase {
   tags?: string[];
 }
 
-type ParsedAction = RememberAction | DecideAction | EvolveAction;
+export type ParsedAction = RememberAction | DecideAction | EvolveAction;
 
-type CandidateAction = ParsedAction | Record<string, unknown>;
+export type CandidateAction = ParsedAction | Record<string, unknown>;
 
-interface ValidationRejection {
+export interface ValidationRejection {
   action: string;
   reason: string;
   concept?: string;
@@ -88,12 +102,12 @@ interface ValidationRejection {
   id?: string;
 }
 
-interface ValidationResult {
+export interface ValidationResult {
   valid: ParsedAction[];
   rejections: ValidationRejection[];
 }
 
-interface ManifestSession {
+export interface ManifestSession {
   path: string;
   lastDreamed?: string;
   entryCount?: number;
@@ -102,15 +116,10 @@ interface ManifestSession {
   mtime?: number;
 }
 
-interface DreamManifest {
+export interface DreamManifest {
   version: number;
   sessions: Record<string, ManifestSession>;
   archived: Record<string, ManifestSession & { archivedAt?: string }>;
-}
-
-interface LlmResult {
-  raw?: string;
-  error?: string;
 }
 
 const DEFAULTS: DreamOptions = {
@@ -145,7 +154,9 @@ export async function runDream(argv = process.argv.slice(2), cwd = process.cwd()
 
   for (const path of jsonl) {
     try {
-      const meta = await stat(path).then((s) => Math.floor(s.mtimeMs)).catch(() => 0);
+      const meta = await stat(path)
+        .then((s) => Math.floor(s.mtimeMs))
+        .catch(() => 0);
       const sessionId = deriveSessionId(path);
       if (!opt.dryRun && manifest.sessions[sessionId] && (manifest.sessions[sessionId].mtime || 0) === meta) {
         continue;
@@ -154,56 +165,60 @@ export async function runDream(argv = process.argv.slice(2), cwd = process.cwd()
       const signal = await extractSignal(path);
       console.log(`\n=== Session ${sessionId} ===`);
       console.log(`file=${path}`);
-      console.log(`entries=${signal.entryCount} users=${signal.userMessages.length} assistants=${signal.assistantMessages.length} compactions=${signal.compactionCount}`);
+      console.log(
+        `entries=${signal.entryCount} users=${signal.userMessages.length} assistants=${signal.assistantMessages.length} compactions=${signal.compactionCount}`,
+      );
 
       if (opt.extractOnly) {
-      console.log("extract-only: no synthesis, no memory writes");
-      updateManifest(manifest, sessionId, path, signal, meta, opt.sessionDir);
-      processed++;
-      continue;
-    }
+        console.log("extract-only: no synthesis, no memory writes");
+        updateManifest(manifest, sessionId, path, signal, meta, opt.sessionDir);
+        processed++;
+        continue;
+      }
 
-    const enrichUrl = process.env.MUNINN_ENRICH_URL || "";
-    if (!enrichUrl) {
-      console.warn("MUNINN_ENRICH_URL not set; refusing to create raw-copy memories. Use --extract-only for parse-only runs.");
-      continue;
-    }
+      const enrichUrl = process.env.MUNINN_ENRICH_URL || "";
+      if (!enrichUrl) {
+        console.warn(
+          "MUNINN_ENRICH_URL not set; refusing to create raw-copy memories. Use --extract-only for parse-only runs.",
+        );
+        continue;
+      }
 
-    const existing = await recallExisting(signal, opt.restUrl, opt.vault);
-    const prompt = buildSynthesisPrompt(signal, existing);
+      const existing = await recallExisting(signal, opt.restUrl, opt.vault);
+      const prompt = buildSynthesisPrompt(signal, existing);
 
-    if (opt.showPrompt) {
-      console.log(`\n=== SYNTHESIS PROMPT ===\n${prompt}\n`);
-    }
+      if (opt.showPrompt) {
+        console.log(`\n=== SYNTHESIS PROMPT ===\n${prompt}\n`);
+      }
 
-    const [raw, llmError] = await callLlm(enrichUrl, prompt);
-    if (llmError) {
-      console.warn(`LLM synthesis failed for ${path}: ${llmError}`);
-      console.log(`\n=== LLM SYNTHESIS ERROR ===\n${llmError}\n`);
-      printSessionSummary(signal, "", [], [], [], 0, opt.dryRun);
-      processed++;
-      continue;
-    }
+      const [raw, llmError] = await callLlm(enrichUrl, prompt);
+      if (llmError) {
+        console.warn(`LLM synthesis failed for ${path}: ${llmError}`);
+        console.log(`\n=== LLM SYNTHESIS ERROR ===\n${llmError}\n`);
+        printSessionSummary(signal, "", [], [], [], 0, opt.dryRun);
+        processed++;
+        continue;
+      }
 
-    const synthesis = raw ?? "";
-    console.log(`\n=== RAW SYNTHESIS OUTPUT ===\n${synthesis}`);
+      const synthesis = raw ?? "";
+      console.log(`\n=== RAW SYNTHESIS OUTPUT ===\n${synthesis}`);
 
-    const parsed = parseActions(synthesis);
-    const validated = validateActions(parsed, signal);
-    const valid = validated.valid;
-    const rejections = validated.rejections;
-    console.log(`\n=== PARSED ACTIONS ===\n${prettyJson(valid)}`);
-    if (rejections.length > 0) {
-      console.log(`\n=== VALIDATION REJECTIONS ===\n${prettyJson(rejections)}`);
-    }
+      const parsed = parseActions(synthesis);
+      const validated = validateActions(parsed, signal);
+      const valid = validated.valid;
+      const rejections = validated.rejections;
+      console.log(`\n=== PARSED ACTIONS ===\n${prettyJson(valid)}`);
+      if (rejections.length > 0) {
+        console.log(`\n=== VALIDATION REJECTIONS ===\n${prettyJson(rejections)}`);
+      }
 
-    let created = 0;
-    if (opt.dryRun) {
-      console.log("dry-run: no writes");
-    } else {
-      created = await executeActions(valid, opt.restUrl, opt.vault, opt.showCreated);
-      updateManifest(manifest, sessionId, path, signal, meta, opt.sessionDir);
-    }
+      let created = 0;
+      if (opt.dryRun) {
+        console.log("dry-run: no writes");
+      } else {
+        created = await executeActions(valid, opt.restUrl, opt.vault, opt.showCreated);
+        updateManifest(manifest, sessionId, path, signal, meta, opt.sessionDir);
+      }
 
       printSessionSummary(signal, synthesis, parsed, valid, rejections, created, opt.dryRun);
       createdTotal += created;
@@ -225,7 +240,7 @@ export async function runDream(argv = process.argv.slice(2), cwd = process.cwd()
   console.log(`Manifest: ${manifestPath}`);
 }
 
-function parseArgs(argv: string[], cwd: string): DreamOptions {
+export function parseArgs(argv: string[], cwd: string): DreamOptions {
   const opt: DreamOptions = {
     ...DEFAULTS,
     sessionDir: `${process.env.HOME || ""}/.pi/agent/sessions`,
@@ -241,19 +256,23 @@ function parseArgs(argv: string[], cwd: string): DreamOptions {
     const next = argv[i + 1];
 
     if (arg === "--vault" && next) {
-      opt.vault = next; i++;
+      opt.vault = next;
+      i++;
     } else if (arg.startsWith("--vault=")) {
       opt.vault = arg.slice("--vault=".length);
     } else if (arg === "--rest-url" && next) {
-      opt.restUrl = next; i++;
+      opt.restUrl = next;
+      i++;
     } else if (arg.startsWith("--rest-url=")) {
       opt.restUrl = arg.slice("--rest-url=".length);
     } else if (arg === "--session-dir" && next) {
-      opt.sessionDir = next; i++;
+      opt.sessionDir = next;
+      i++;
     } else if (arg.startsWith("--session-dir=")) {
       opt.sessionDir = arg.slice("--session-dir=".length);
     } else if (arg === "--session-file" && next) {
-      opt.sessionFile = next; i++;
+      opt.sessionFile = next;
+      i++;
     } else if (arg.startsWith("--session-file=")) {
       opt.sessionFile = arg.slice("--session-file=".length);
     } else if (arg === "--dry-run") {
@@ -320,7 +339,7 @@ async function walkJsonlFiles(dir: string, out: string[]): Promise<void> {
   }
 }
 
-async function extractSignal(path: string): Promise<SessionSignal> {
+export async function extractSignal(path: string): Promise<SessionSignal> {
   const signal: SessionSignal = {
     sessionId: "",
     cwd: "",
@@ -393,7 +412,11 @@ async function extractSignal(path: string): Promise<SessionSignal> {
             } else if (blockType === "toolCall") {
               const name = stringValue(block.name);
               if (name.startsWith("muninndb_muninn_")) {
-                signal.muninnCalls.push({ turn: turn || 0, tool: name, arguments: isRecord(block.arguments) ? (block.arguments as Record<string, unknown>) : {} });
+                signal.muninnCalls.push({
+                  turn: turn || 0,
+                  tool: name,
+                  arguments: isRecord(block.arguments) ? (block.arguments as Record<string, unknown>) : {},
+                });
               }
             }
           }
@@ -421,20 +444,32 @@ function extractTextBlocks(content: unknown): string[] {
   return out;
 }
 
-async function recallExisting(signal: SessionSignal, restUrl: string, vault: string): Promise<Array<{ id?: string; concept?: string; content?: string }>> {
+async function recallExisting(
+  signal: SessionSignal,
+  restUrl: string,
+  vault: string,
+): Promise<Array<{ id?: string; concept?: string; content?: string }>> {
   const context = signal.userMessages.map((m) => m.text).slice(0, 8);
   if (context.length === 0) return [];
-  const res = await postJson(`${trimTrailingSlash(restUrl)}/api/activate?vault=${encodeURIComponent(vault)}`, { context, limit: 5 });
+  const res = await postJson(`${trimTrailingSlash(restUrl)}/api/activate?vault=${encodeURIComponent(vault)}`, {
+    context,
+    limit: 5,
+  });
   if (!res.ok) return [];
   try {
     const body = JSON.parse(res.body || "{}") as Record<string, unknown>;
-    return Array.isArray(body.activations) ? (body.activations as Array<{ id?: string; concept?: string; content?: string }>) : [];
+    return Array.isArray(body.activations)
+      ? (body.activations as Array<{ id?: string; concept?: string; content?: string }>)
+      : [];
   } catch {
     return [];
   }
 }
 
-function buildSynthesisPrompt(signal: SessionSignal, existing: Array<{ id?: string; concept?: string; content?: string }>): string {
+function buildSynthesisPrompt(
+  signal: SessionSignal,
+  existing: Array<{ id?: string; concept?: string; content?: string }>,
+): string {
   const json = prettyJson({
     session: {
       id: signal.sessionId,
@@ -519,7 +554,12 @@ async function callLlm(enrichUrl: string, prompt: string): Promise<[string | und
     }
     try {
       const parsed = JSON.parse(res.body || "{}");
-      if (parsed && typeof parsed === "object" && isRecord(parsed.message) && typeof parsed.message.content === "string") {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        isRecord(parsed.message) &&
+        typeof parsed.message.content === "string"
+      ) {
         return [parsed.message.content as string, undefined];
       }
       if (typeof parsed?.message?.content === "string") {
@@ -547,7 +587,7 @@ function parseActions(raw: string): CandidateAction[] {
   }
 }
 
-function validateActions(actions: CandidateAction[], signal: SessionSignal): ValidationResult {
+export function validateActions(actions: CandidateAction[], signal: SessionSignal): ValidationResult {
   const rawUser = new Set(signal.userMessages.map((m) => m.text));
   const valid: ParsedAction[] = [];
   const rejections: ValidationRejection[] = [];
@@ -569,7 +609,10 @@ function validateActions(actions: CandidateAction[], signal: SessionSignal): Val
         rejections.push({ action, concept, reason: "Session note concept" });
         continue;
       }
-      if (/short durable label|synthesized memory|existing-memory-id|save this for future reference/i.test(concept) || /short durable label|synthesized memory|existing-memory-id|save this for future reference/i.test(content)) {
+      if (
+        /short durable label|synthesized memory|existing-memory-id|save this for future reference/i.test(concept) ||
+        /short durable label|synthesized memory|existing-memory-id|save this for future reference/i.test(content)
+      ) {
         rejections.push({ action, concept, reason: "placeholder text" });
         continue;
       }
@@ -606,7 +649,11 @@ function validateActions(actions: CandidateAction[], signal: SessionSignal): Val
         rejections.push({ action, reason: "missing decision/rationale" });
         continue;
       }
-      if (/^(project uses|user has|this work is|the session suggests|this is a stable)/i.test(decision) || /\b(decision made|simple memory helper|simple task|for now|updated content)\b/i.test(decision) || /\b(consider the options and alternatives|minimal effort|save this for future reference)\b/i.test(rationale)) {
+      if (
+        /^(project uses|user has|this work is|the session suggests|this is a stable)/i.test(decision) ||
+        /\b(decision made|simple memory helper|simple task|for now|updated content)\b/i.test(decision) ||
+        /\b(consider the options and alternatives|minimal effort|save this for future reference)\b/i.test(rationale)
+      ) {
         rejections.push({ action, decision, reason: "generic decision" });
         continue;
       }
@@ -654,13 +701,23 @@ function validateActions(actions: CandidateAction[], signal: SessionSignal): Val
   return { valid, rejections };
 }
 
-async function executeActions(actions: ParsedAction[], restUrl: string, vault: string, showCreated: boolean): Promise<number> {
+async function executeActions(
+  actions: ParsedAction[],
+  restUrl: string,
+  vault: string,
+  showCreated: boolean,
+): Promise<number> {
   const engrams: Array<Record<string, unknown>> = [];
   let count = 0;
 
   for (const action of actions) {
     if (action.action === "remember") {
-      pushEngrams(engrams, { concept: action.concept, content: action.content, type: action.type ?? "observation", tags: action.tags ?? ["dream"] });
+      pushEngrams(engrams, {
+        concept: action.concept,
+        content: action.content,
+        type: action.type ?? "observation",
+        tags: action.tags ?? ["dream"],
+      });
     } else if (action.action === "decide") {
       pushEngrams(engrams, {
         concept: `Decision: ${action.decision}`,
@@ -669,7 +726,10 @@ async function executeActions(actions: ParsedAction[], restUrl: string, vault: s
         tags: ["dream", "decision"],
       });
     } else if (action.action === "evolve") {
-      const res = await postJson(`${trimTrailingSlash(restUrl)}/api/engrams/${encodeURIComponent(action.id)}/evolve?vault=${encodeURIComponent(vault)}`, { content: action.new_content, reason: action.reason });
+      const res = await postJson(
+        `${trimTrailingSlash(restUrl)}/api/engrams/${encodeURIComponent(action.id)}/evolve?vault=${encodeURIComponent(vault)}`,
+        { content: action.new_content, reason: action.reason },
+      );
       if (showCreated && res.ok) {
         console.log(`\n=== EVOLVE RESPONSE ${action.id} ===\n${res.body}`);
       }
@@ -683,7 +743,9 @@ async function executeActions(actions: ParsedAction[], restUrl: string, vault: s
 
   if (engrams.length > 0) {
     if (showCreated) console.log(`\n=== WRITE PAYLOAD ===\n${prettyJson(engrams)}`);
-    const res = await postJson(`${trimTrailingSlash(restUrl)}/api/engrams/batch?vault=${encodeURIComponent(vault)}`, { engrams });
+    const res = await postJson(`${trimTrailingSlash(restUrl)}/api/engrams/batch?vault=${encodeURIComponent(vault)}`, {
+      engrams,
+    });
     if (res.ok) {
       count += engrams.length;
       if (showCreated) console.log(`\n=== WRITE RESPONSE ===\n${res.body}`);
@@ -695,15 +757,29 @@ async function executeActions(actions: ParsedAction[], restUrl: string, vault: s
   return count;
 }
 
-function printSessionSummary(signal: SessionSignal, raw: string, parsedActions: CandidateAction[], valid: ParsedAction[], rejections: ValidationRejection[], created: number, dryRun: boolean): void {
+function printSessionSummary(
+  signal: SessionSignal,
+  raw: string,
+  parsedActions: CandidateAction[],
+  valid: ParsedAction[],
+  rejections: ValidationRejection[],
+  created: number,
+  dryRun: boolean,
+): void {
   const counts = { remember: 0, decide: 0, evolve: 0 };
   for (const action of valid) counts[action.action]++;
 
   console.log("\n=== SESSION SUMMARY ===");
   console.log(`session=${signal.sessionId}`);
-  console.log(`entries=${signal.entryCount} users=${signal.userMessages.length} assistants=${signal.assistantMessages.length} compactions=${signal.compactionCount}`);
-  console.log(`raw_synthesis_chars=${raw.length} parsed_actions=${parsedActions.length} valid_actions=${valid.length} rejected_actions=${rejections.length}`);
-  console.log(`remember=${counts.remember} decide=${counts.decide} evolve=${counts.evolve} created=${created} dry_run=${dryRun ? "yes" : "no"}`);
+  console.log(
+    `entries=${signal.entryCount} users=${signal.userMessages.length} assistants=${signal.assistantMessages.length} compactions=${signal.compactionCount}`,
+  );
+  console.log(
+    `raw_synthesis_chars=${raw.length} parsed_actions=${parsedActions.length} valid_actions=${valid.length} rejected_actions=${rejections.length}`,
+  );
+  console.log(
+    `remember=${counts.remember} decide=${counts.decide} evolve=${counts.evolve} created=${created} dry_run=${dryRun ? "yes" : "no"}`,
+  );
 }
 
 async function loadManifest(path: string): Promise<DreamManifest> {
@@ -726,7 +802,14 @@ async function saveManifest(path: string, manifest: DreamManifest): Promise<void
   await rename(tmp, path);
 }
 
-function updateManifest(manifest: DreamManifest, sessionId: string, path: string, signal: SessionSignal, mtime: number, sessionDir: string): void {
+function updateManifest(
+  manifest: DreamManifest,
+  sessionId: string,
+  path: string,
+  signal: SessionSignal,
+  mtime: number,
+  sessionDir: string,
+): void {
   manifest.sessions[sessionId] = {
     path: relPath(path, sessionDir),
     lastDreamed: isoNow(),
@@ -738,7 +821,7 @@ function updateManifest(manifest: DreamManifest, sessionId: string, path: string
 }
 
 function deriveSessionId(path: string): string {
-  const match = path.match(/_([0-9a-zA-Z\-]{12,})\.jsonl$/);
+  const match = path.match(/_([0-9a-zA-Z-]{12,})\.jsonl$/);
   return match?.[1] || path;
 }
 
@@ -771,10 +854,14 @@ function trimArray(arr: string[], max: number, chars: number): string[] {
 }
 
 function trimTurns<T extends { text: string }>(arr: T[], max: number, chars: number): T[] {
-  return arr.slice(0, max).map((item) => ({ ...item, text: item.text.length > chars ? item.text.slice(0, chars) : item.text }));
+  return arr
+    .slice(0, max)
+    .map((item) => ({ ...item, text: item.text.length > chars ? item.text.slice(0, chars) : item.text }));
 }
 
-function trimExistingMemories(existing: Array<{ id?: string; concept?: string; content?: string }>): Array<{ id?: string; concept?: string; content?: string }> {
+function trimExistingMemories(
+  existing: Array<{ id?: string; concept?: string; content?: string }>,
+): Array<{ id?: string; concept?: string; content?: string }> {
   const out: Array<{ id?: string; concept?: string; content?: string }> = [];
   for (const mem of existing) {
     if (typeof mem.concept === "string" && /^Session note\b/i.test(mem.concept)) continue;
